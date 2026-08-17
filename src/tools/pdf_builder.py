@@ -14,10 +14,6 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.ticker import FuncFormatter
 
-from reportlab.lib.pagesizes import letter
-from reportlab.lib import colors
-from pypdf import PdfWriter, PdfReader
-
 logger = logging.getLogger(__name__)
 
 # --- CONSTANTES DE ESTÉTICA ---
@@ -67,8 +63,8 @@ def formato_legible(num):
 
 def formatear_grafica(barras, ax):
     etiquetas = [formato_legible(val) for val in barras.datavalues]
-    ax.bar_label(barras, labels=etiquetas, padding=3, fontsize=9)
-    ax.margins(y=0.15)
+    ax.bar_label(barras, labels=etiquetas, padding=4, fontsize=9.5, fontweight='bold')
+    ax.margins(y=0.22)
 
 def estilizar_figura_profesional(fig):
     fig.patch.set_facecolor(REPORT_THEME["canvas"])
@@ -80,17 +76,634 @@ def estilizar_figura_profesional(fig):
         for spine_name in ('left', 'bottom'):
             ax.spines[spine_name].set_color(REPORT_THEME["line"])
             ax.spines[spine_name].set_linewidth(1)
-        ax.tick_params(colors=REPORT_THEME["muted"], labelsize=9)
-        ax.title.set_color(REPORT_THEME["navy"]); ax.title.set_fontsize(11); ax.title.set_fontweight('bold')
-        ax.xaxis.label.set_color(REPORT_THEME["text"]); ax.yaxis.label.set_color(REPORT_THEME["text"])
+        ax.tick_params(colors=REPORT_THEME["muted"], labelsize=9.5)
+        ax.xaxis.label.set_color(REPORT_THEME["text"])
+        ax.xaxis.label.set_fontsize(10)
+        ax.yaxis.label.set_color(REPORT_THEME["text"])
+        ax.yaxis.label.set_fontsize(10)
         ax.yaxis.set_major_formatter(FuncFormatter(lambda x, pos: formato_legible(x)))
         for container in ax.containers:
             if not hasattr(container, "patches"): continue
             for barra in container.patches:
                 barra.set_facecolor(REPORT_THEME["negative"] if barra.get_height() < 0 else REPORT_THEME["sky"])
-                barra.set_edgecolor("white"); barra.set_linewidth(1); barra.set_alpha(0.96)
-    try: fig.tight_layout(rect=(0.03, 0.05, 0.97, 0.95))
-    except: pass
+                barra.set_edgecolor("white")
+                barra.set_linewidth(1)
+                barra.set_alpha(0.96)
+    try:
+        fig.tight_layout(rect=(0.04, 0.04, 0.96, 0.91))
+    except Exception:
+        pass
+
+def estilizar_tabla(table):
+    """
+    Aplica una estética limpia y profesional a las tablas de matplotlib acorde al tema corporativo,
+    asegurando márgenes internos para que el texto nunca se corte ni se solape.
+    """
+    for (row, col), cell in table.get_celld().items():
+        cell.set_edgecolor(REPORT_THEME["line"])
+        cell.set_linewidth(1.0)
+        cell.PAD = 0.06
+        if row == 0:
+            cell.set_facecolor(REPORT_THEME["navy"])
+            cell.get_text().set_color("white")
+            cell.get_text().set_fontweight("bold")
+            cell.get_text().set_fontsize(10.5)
+        else:
+            cell.set_facecolor(REPORT_THEME["panel"] if row % 2 == 0 else REPORT_THEME["canvas"])
+            cell.get_text().set_color(REPORT_THEME["text"])
+            cell.get_text().set_fontsize(9.5)
+            if col == 0:
+                cell.get_text().set_fontweight("bold")
+                cell.get_text().set_ha("left")
+
+def _calcular_cagrs_adaptativos(s: pd.Series):
+    """
+    Calcula el CAGR a largo plazo (10 años o máximo disponible) y a medio plazo (5 años o mitad disponible).
+    Retorna: (cagr_10, cagr_5, años_10, años_5)
+    """
+    n_points = len(s)
+    if n_points < 2:
+        return float('nan'), float('nan'), 10, 5
+
+    # 1. Periodo largo: 10 años si hay al menos 11 puntos, o todos los años disponibles (n_points - 1)
+    if n_points >= 11:
+        n_10 = 10
+        start_idx_10 = -11
+    else:
+        n_10 = n_points - 1
+        start_idx_10 = 0
+
+    cagr_10 = float('nan')
+    if s.iloc[start_idx_10] > 0 and s.iloc[-1] > 0:
+        cagr_10 = ((s.iloc[-1] / s.iloc[start_idx_10]) ** (1.0 / n_10) - 1) * 100
+
+    # 2. Periodo medio: 5 años si hay al menos 6 puntos, o la mitad de los años disponibles
+    if n_points >= 6:
+        n_5 = 5
+        start_idx_5 = -6
+    else:
+        n_5 = max(1, (n_points - 1) // 2)
+        start_idx_5 = -1 - n_5
+
+    cagr_5 = float('nan')
+    if s.iloc[start_idx_5] > 0 and s.iloc[-1] > 0:
+        cagr_5 = ((s.iloc[-1] / s.iloc[start_idx_5]) ** (1.0 / n_5) - 1) * 100
+
+    return cagr_10, cagr_5, n_10, n_5
+
+
+def show_percentage_difference(pdf, df, ticker: str = "", current_price: float = None):
+    """
+    Calcula y renderiza la tabla de panorama de crecimiento y valoración por ROE,
+    adaptándose dinámicamente si la empresa dispone de menos de 10 años históricos.
+    """
+    # ---------- Ordenar por fecha (CRÍTICO) ----------
+    if 'fecha' in df.columns:
+        df = df.sort_values('fecha')
+    elif 'Periodo Fiscal' in df.columns:
+        df = df.sort_values('Periodo Fiscal')
+
+    # ---------- Crecimiento % del beneficio neto ----------
+    if 'Beneficio neto de la empresa' in df.columns:
+        df['Beneficio neto de la empresa Diff (%)'] = (
+            df['Beneficio neto de la empresa'].pct_change() * 100
+        )
+        bn = df['Beneficio neto de la empresa'].dropna().reset_index(drop=True)
+    else:
+        bn = pd.Series([], dtype=float)
+
+    crecimientoBN10, crecimientoBN5, n_bn_10, n_bn_5 = _calcular_cagrs_adaptativos(bn)
+
+    # ---------- BPA ----------
+    shares = df.get('Promedio ponderado de acciones basicas en circulacion',
+             df.get('Promedio ponderado de acciones básicas en circulación',
+             df.get('Promedio ponderado de acciones diluidas en circulacion',
+             df.get('Promedio ponderado de acciones diluidas en circulación',
+             df.get('Total de acciones fuera. en la fecha de presentacion',
+             pd.Series([1]*len(df)))))))
+    shares = shares.replace(0, np.nan)
+
+    if 'Beneficio neto de la empresa' in df.columns:
+        df['Beneficio por acción'] = df['Beneficio neto de la empresa'] / shares
+        bpa = df['Beneficio por acción'].dropna().reset_index(drop=True)
+    else:
+        bpa = pd.Series([], dtype=float)
+
+    # ---------- CAGR BPA Adaptativo ----------
+    crecimientoBPA10, crecimientoBPA5, n_bpa_10, n_bpa_5 = _calcular_cagrs_adaptativos(bpa)
+
+    # ---------- Resolución de Precio Actual (Self-healing si falló el primer intento) ----------
+    if (current_price is None or current_price <= 0) and ticker:
+        try:
+            from src.tools.market_api import MarketDataAPI
+            mq = MarketDataAPI.get_market_quote(ticker)
+            current_price = mq.get("current_price", 0.0)
+        except Exception as e:
+            logger.debug(f"No se pudo resolver cotización en show_percentage_difference: {e}")
+
+    # --------------- PER ------------------------------
+    ultimo_bpa = bpa.iloc[-1] if len(bpa) > 0 else 0
+    if ultimo_bpa > 0 and current_price is not None and current_price > 0:
+        per_actual = current_price / ultimo_bpa
+    else:
+        per_actual = float('nan')
+
+    # ---------- Valoración por (ROE) ------------------
+    cagr_estimado = None
+    tasa_retencion = None
+    try:
+        patrimonio_total = df['Fondos propios totales'].iloc[-1] if 'Fondos propios totales' in df.columns else 0
+        acciones_circulacion = shares.iloc[-1] if hasattr(shares, 'iloc') else shares[-1]
+        beneficio_neto_total = df['Beneficio neto de la empresa'].iloc[-1] if 'Beneficio neto de la empresa' in df.columns else 0
+        
+        serie_dividendos = df.get('Dividendos de acciones comunes y preferentes pagados',
+                           df.get('Dividendos comunes pagados',
+                           df.get('Dividendos preferenciales pagados', pd.Series([0]*len(df)))))
+        serie_recompras = df.get('Recompra de acciones comunes', pd.Series([0]*len(df)))
+
+        div_pagados = abs(serie_dividendos.iloc[-1]) if len(serie_dividendos) > 0 else 0
+        if pd.isna(div_pagados): div_pagados = 0
+
+        recompras = abs(serie_recompras.iloc[-1]) if len(serie_recompras) > 0 else 0
+        if pd.isna(recompras): recompras = 0
+
+        # Cálculos de Valor Actual
+        fp_por_accion = patrimonio_total / acciones_circulacion if acciones_circulacion and acciones_circulacion != 0 else 0
+        ultimo_bpa_calc = beneficio_neto_total / acciones_circulacion if acciones_circulacion and acciones_circulacion != 0 else 0
+        roe_actual = ultimo_bpa_calc / fp_por_accion if fp_por_accion != 0 else (beneficio_neto_total / patrimonio_total if patrimonio_total and patrimonio_total != 0 else 0)
+
+        # Cálculo de Tasa de Retención (Retention Ratio)
+        beneficio_retenido_total = beneficio_neto_total - div_pagados - recompras
+        if beneficio_retenido_total <= 0:
+            recompras_mean = abs(df.get('Recompra de acciones comunes', pd.Series([0])).mean())
+            beneficio_retenido_total = beneficio_neto_total - (div_pagados + recompras_mean)
+        
+        tasa_retencion = beneficio_retenido_total / beneficio_neto_total if beneficio_neto_total != 0 else 0
+
+        # Proyecciones a 10 años (Fórmula de Crecimiento Sostenible: g = ROE * Retención)
+        tasa_crecimiento_g = roe_actual * tasa_retencion
+        
+        fp_proyectado_10_años = fp_por_accion * ((1 + tasa_crecimiento_g) ** 10)
+        bpa_proyectado_10_años = fp_proyectado_10_años * roe_actual
+        
+        # Estimación de Precio Futuro
+        precio_objetivo_10_años = bpa_proyectado_10_años * per_actual if not pd.isna(per_actual) else 0
+
+        # Rentabilidad Anualizada (CAGR)
+        Beneficio_actual = ultimo_bpa_calc if (ultimo_bpa_calc > 0) else (beneficio_neto_total / acciones_circulacion if acciones_circulacion else 1.0)
+        Total_dividendos_acumulados = 0
+        años = 10
+        for año in range(1, años + 1):
+            Beneficio_actual *= (1 + tasa_crecimiento_g)
+            Dividendo_del_año = Beneficio_actual * roe_actual
+            Total_dividendos_acumulados += Dividendo_del_año
+
+        if current_price and current_price > 0 and precio_objetivo_10_años > 0:
+            Beneficio_10años_despues_impuestos = (precio_objetivo_10_años + Total_dividendos_acumulados) 
+            if Beneficio_10años_despues_impuestos > 0:
+                cagr_estimado = ((Beneficio_10años_despues_impuestos / current_price) ** (1 / 10) - 1) * 100
+            else:
+                cagr_estimado = float('nan')
+        else:
+            cagr_estimado = float('nan')
+
+    except ZeroDivisionError:
+        cagr_estimado = None
+    except Exception as e:
+        logger.warning(f"Error en proyección por ROE: {e}")
+        cagr_estimado = None
+
+    # ---------- Preparar datos con etiquetas adaptativas ----------
+    lbl_bn_10 = 'Crecimiento medio Beneficio Neto 10 AÑOS (%)' if n_bn_10 == 10 else f'Crecimiento medio Beneficio Neto {n_bn_10} AÑOS (%)'
+    lbl_bn_5 = 'Crecimiento medio Beneficio Neto 5 AÑOS (%)' if n_bn_5 == 5 else f'Crecimiento medio Beneficio Neto {n_bn_5} AÑOS (%)'
+    lbl_bpa_10 = 'CAGR BPA últimos 10 años (%)' if n_bpa_10 == 10 else f'CAGR BPA últimos {n_bpa_10} años (%)'
+    lbl_bpa_5 = 'CAGR BPA últimos 5 años (%)' if n_bpa_5 == 5 else f'CAGR BPA últimos {n_bpa_5} años (%)'
+
+    metricas_raw = [
+        lbl_bn_10,
+        lbl_bn_5,
+        lbl_bpa_10,
+        lbl_bpa_5,
+        'CAGR ESTIMADO POR ROE (%)',
+        'TASA DE RETENCIÓN (%)',
+        'PER ACTUAL'
+    ]
+    valores_raw = [
+        f'{crecimientoBN10:.2f}%' if not pd.isna(crecimientoBN10) else 'N/A',
+        f'{crecimientoBN5:.2f}%' if not pd.isna(crecimientoBN5) else 'N/A',
+        f'{crecimientoBPA10:.2f}%' if not pd.isna(crecimientoBPA10) else 'N/A',
+        f'{crecimientoBPA5:.2f}%' if not pd.isna(crecimientoBPA5) else 'N/A',
+        f'{cagr_estimado:.2f}%' if (cagr_estimado is not None and not pd.isna(cagr_estimado)) else 'N/A',
+        f'{(tasa_retencion * 100):.2f}%' if (tasa_retencion is not None and not pd.isna(tasa_retencion)) else 'N/A',
+        f'{per_actual:.2f}' if not pd.isna(per_actual) else 'N/A'
+    ]
+
+    cell_data = []
+    for m, v in zip(metricas_raw, valores_raw):
+        cell_data.append([textwrap.fill(m, width=38), str(v)])
+
+    # ---------- Renderizar figura dentro de márgenes estrictos ----------
+    fig = plt.figure(figsize=(9, 7), dpi=150)
+    fig.patch.set_facecolor(REPORT_THEME["canvas"])
+    ax = fig.add_axes([0.06, 0.06, 0.88, 0.88])
+    ax.set_facecolor(REPORT_THEME["canvas"])
+    ax.axis('off')
+    
+    ticker_str = ticker or ""
+    ax.text(
+        0.0, 0.98,
+        f'Panorama de crecimiento y valoracion ({ticker_str})',
+        fontsize=14,
+        fontweight='bold',
+        color=REPORT_THEME["navy"],
+        ha='left',
+        va='top'
+    )
+
+    sub_text = textwrap.fill(
+        "Comparar el CAGR del Beneficio Neto con el CAGR del BPA para comprobar si la empresa crece por su propio motor o por las recompras de acciones.",
+        width=80
+    )
+    ax.text(
+        0.0, 0.91,
+        sub_text,
+        fontsize=9.5,
+        ha='left',
+        va='top',
+        color=REPORT_THEME["muted"]
+    )
+
+    table = ax.table(
+        cellText=cell_data,
+        colLabels=['Métrica', 'Valor'],
+        colWidths=[0.68, 0.32],
+        bbox=[0.0, 0.04, 1.0, 0.78],
+        loc='center',
+        cellLoc='center'
+    )
+
+    table.auto_set_font_size(False)
+    table.set_fontsize(10)
+    estilizar_tabla(table)
+
+    pdf.savefig(fig)
+    plt.close(fig)
+
+
+def show_capex_vs_netincome(pdf, df, ticker: str = ""):
+    """
+    Calcula y renderiza el análisis de CapEx vs Beneficio Neto con diagnóstico visual,
+    garantizando que los textos no se solapen ni salgan de los márgenes de la página.
+    """
+    total_net_income = df['Beneficio neto de la empresa'].sum() if 'Beneficio neto de la empresa' in df.columns else 0
+    total_capital_expenditures = df['Gastos de capital'].sum() if 'Gastos de capital' in df.columns else 0
+
+    if total_net_income != 0:
+        cociente_total = round((abs(total_capital_expenditures) / total_net_income) * 100, 3)
+        cociente_str = f'{cociente_total:.3f}%'
+        color_mensaje = REPORT_THEME["positive"] if cociente_total < 50 else REPORT_THEME["negative"]
+    else:
+        cociente_total = None
+        cociente_str = "N/A (Beneficio Neto Total = 0)"
+        color_mensaje = REPORT_THEME["negative"]
+
+    metric_label = textwrap.fill("Gasto de Capital Total / Beneficio Neto Total (%)", width=42)
+    cell_data = [[metric_label, cociente_str]]
+
+    fig = plt.figure(figsize=(9, 7), dpi=150)
+    fig.patch.set_facecolor(REPORT_THEME["canvas"])
+    ax = fig.add_axes([0.06, 0.06, 0.88, 0.88])
+    ax.set_facecolor(REPORT_THEME["canvas"])
+    ax.axis('off')
+
+    ticker_str = ticker or ""
+    ax.text(
+        0.0, 0.98,
+        f'Análisis de Inversión ({ticker_str}): Gastos de Capital vs. Beneficio Neto',
+        fontsize=13.5,
+        fontweight='bold',
+        color=REPORT_THEME["navy"],
+        ha='left',
+        va='top'
+    )
+
+    mensaje_regla = textwrap.fill(
+        "Regla de la Ventaja Competitiva Duradera (Buffett/Graham): Una empresa con una ventaja competitiva fuerte no debería necesitar reinvertir más del 50% de sus Beneficios Netos en Gastos de Capital para mantener sus operaciones actuales.",
+        width=82
+    )
+    ax.text(
+        0.5, 0.86,
+        mensaje_regla,
+        fontsize=9.5,
+        ha='center',
+        va='top',
+        color=REPORT_THEME["text"],
+        bbox=dict(
+            boxstyle='round,pad=0.7',
+            facecolor=REPORT_THEME["panel"],
+            edgecolor=REPORT_THEME["line"],
+            linewidth=1.0
+        )
+    )
+
+    table = ax.table(
+        cellText=cell_data,
+        colLabels=['Métrica', 'Valor Calculado'],
+        colWidths=[0.68, 0.32],
+        bbox=[0.05, 0.42, 0.90, 0.24],
+        loc='center',
+        cellLoc='center'
+    )
+
+    table.auto_set_font_size(False)
+    table.set_fontsize(10.5)
+    estilizar_tabla(table)
+
+    if cociente_total is not None and cociente_total < 50:
+        diag_text = f"CUMPLE LA REGLA: {cociente_str} (< 50%)\nLa empresa retiene la mayor parte de sus beneficios sin requerir un CapEx intensivo."
+    elif cociente_total is not None:
+        diag_text = f"NO CUMPLE LA REGLA: {cociente_str} (>= 50%)\nLa empresa requiere una alta reinversión de capital en maquinaria o infraestructura."
+    else:
+        diag_text = f"Resultado del Análisis: {cociente_str}"
+
+    ax.text(
+        0.5, 0.22,
+        diag_text,
+        fontsize=11,
+        fontweight='bold',
+        ha='center',
+        va='center',
+        color=color_mensaje,
+        bbox=dict(
+            boxstyle='round,pad=0.8',
+            facecolor=REPORT_THEME["panel"],
+            edgecolor=color_mensaje,
+            linewidth=1.5
+        )
+    )
+
+    pdf.savefig(fig)
+    plt.close(fig)
+
+
+def show_monopoly_analysis(pdf, analysis_result: dict, ticker: str = ""):
+    """
+    Renderiza la página ejecutiva final de evaluación de monopolio de consumo según Warren Buffett (Pregunta 1).
+    """
+    if not analysis_result:
+        return
+
+    fig = plt.figure(figsize=(9, 7), dpi=150)
+    fig.patch.set_facecolor(REPORT_THEME['canvas'])
+    ax = fig.add_axes([0.05, 0.04, 0.90, 0.92])
+    ax.set_facecolor(REPORT_THEME['canvas'])
+    ax.axis('off')
+
+    def _esc(t): return str(t).replace('$', r'\$')
+
+    ticker_str = ticker or ""
+    # 1. Encabezado institucional
+    ax.text(0.0, 0.98, f'Evaluación de Monopolio de Buffettology ({ticker_str})', fontsize=13.5, fontweight='bold', color=REPORT_THEME['navy'], va='top')
+    ax.text(0.0, 0.93, 'Pregunta 1 de Warren Buffett: ¿Tiene la empresa un monopolio fácilmente identificable?', fontsize=9.5, style='italic', color=REPORT_THEME['muted'], va='top')
+
+    # 2. Veredicto destacado
+    categoria = analysis_result.get('categoria', 'MODERADO')
+    badge_color = REPORT_THEME['positive'] if categoria == 'FUERTE' else (REPORT_THEME['negative'] if categoria == 'COMMODITY' else REPORT_THEME['gold'])
+    verdicto_corto = analysis_result.get('veredicto_corto', 'Evaluación de Monopolio')
+    tipo_foso = analysis_result.get('tipo_foso', 'Ventaja Competitiva')
+    verdict_text = f"VEREDICTO: {_esc(verdicto_corto)}\nTipo de Foso: {_esc(tipo_foso)}"
+    
+    ax.text(0.5, 0.83, verdict_text, fontsize=10.5, fontweight='bold', ha='center', va='center', color=badge_color,
+            bbox=dict(boxstyle='round,pad=0.6', facecolor=REPORT_THEME['panel'], edgecolor=badge_color, linewidth=1.5))
+
+    # 3. Card 1: Análisis SEC 10-K
+    ax.text(0.0, 0.74, '1. Análisis del Modelo de Negocio e Informes 10-K (SEC):', fontsize=10, fontweight='bold', color=REPORT_THEME['navy'], va='top')
+    sec_desc = analysis_result.get('analisis_sec', 'Sin datos descriptivos.')
+    sec_wrapped = textwrap.fill(_esc(sec_desc), width=96)
+    ax.text(0.0, 0.70, sec_wrapped, fontsize=8.8, color=REPORT_THEME['text'], va='top',
+            bbox=dict(boxstyle='square,pad=0.5', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['line'], linewidth=0.8))
+
+    # 4. Card 2: Pricing Power & Pilares Cuantitativos
+    ax.text(0.0, 0.53, '2. Poder de Fijación de Precios & Evidencia Cuantitativa (10 Años):', fontsize=10, fontweight='bold', color=REPORT_THEME['navy'], va='top')
+    pricing_power = analysis_result.get('poder_fijacion_precios', '')
+    pilares = analysis_result.get('pilares_cuantitativos', '')
+    quant_text = f"• Fijación de Precios: {_esc(pricing_power)}\n• Métricas Contables: {_esc(pilares)}"
+    quant_wrapped = textwrap.fill(quant_text, width=96)
+    ax.text(0.0, 0.49, quant_wrapped, fontsize=8.8, color=REPORT_THEME['text'], va='top',
+            bbox=dict(boxstyle='square,pad=0.5', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['line'], linewidth=0.8))
+
+    # 5. Card 3: Amenazas al Foso
+    ax.text(0.0, 0.32, '3. Amenazas al Foso Defensivo & Riesgos Regulatorios:', fontsize=10, fontweight='bold', color=REPORT_THEME['navy'], va='top')
+    threats = analysis_result.get('amenazas_foso', 'Sin amenazas críticas reportadas.')
+    threats_wrapped = textwrap.fill(_esc(threats), width=96)
+    ax.text(0.0, 0.28, threats_wrapped, fontsize=8.8, color=REPORT_THEME['text'], va='top',
+            bbox=dict(boxstyle='square,pad=0.5', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['line'], linewidth=0.8))
+
+    # 6. Card 4: Conclusión Final de Warren Buffett
+    ax.text(0.0, 0.17, '4. Conclusión Final de Warren Buffett:', fontsize=10, fontweight='bold', color=REPORT_THEME['navy'], va='top')
+    conclusion = analysis_result.get('conclusion_buffett', '')
+    conc_wrapped = textwrap.fill(_esc(conclusion), width=96)
+    ax.text(0.0, 0.13, conc_wrapped, fontsize=9.2, fontweight='bold', color=REPORT_THEME['navy'], va='top',
+            bbox=dict(boxstyle='round,pad=0.6', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['teal'], linewidth=1.2))
+
+    pdf.savefig(fig)
+    plt.close(fig)
+
+
+def show_retained_earnings_analysis(pdf, analysis_result: dict, ticker: str = ""):
+    """
+    Renderiza la página ejecutiva de evaluación de beneficios no distribuidos según Warren Buffett (Test del $1 y Asignación de Capital).
+    """
+    if not analysis_result:
+        return
+
+    fig = plt.figure(figsize=(9, 7), dpi=150)
+    fig.patch.set_facecolor(REPORT_THEME['canvas'])
+    ax = fig.add_axes([0.05, 0.04, 0.90, 0.92])
+    ax.set_facecolor(REPORT_THEME['canvas'])
+    ax.axis('off')
+
+    def _esc(t): return str(t).replace('$', r'\$')
+
+    ticker_str = ticker or ""
+    # 1. Encabezado institucional
+    ax.text(0.0, 0.98, f'Evaluación de Beneficios No Distribuidos ({ticker_str})', fontsize=13.5, fontweight='bold', color=REPORT_THEME['navy'], va='top')
+    ax.text(0.0, 0.93, 'Pregunta de Warren Buffett: ¿Incrementará el valor añadido de los beneficios no distribuidos el valor de mercado?', fontsize=9.2, style='italic', color=REPORT_THEME['muted'], va='top')
+
+    # 2. Veredicto destacado
+    categoria = analysis_result.get('categoria', 'MODERADO')
+    badge_color = REPORT_THEME['positive'] if categoria == 'EXCELENTE' else (REPORT_THEME['negative'] if categoria == 'DEFICIENTE' else REPORT_THEME['gold'])
+    verdicto_corto = analysis_result.get('veredicto_corto', 'Evaluación de Asignación de Capital')
+    eficiencia = analysis_result.get('eficiencia_capital', 'Asignación de Capital')
+    verdict_text = f"VEREDICTO: {_esc(verdicto_corto)}\nEficiencia: {_esc(eficiencia)}"
+    
+    ax.text(0.5, 0.83, verdict_text, fontsize=10.5, fontweight='bold', ha='center', va='center', color=badge_color,
+            bbox=dict(boxstyle='round,pad=0.6', facecolor=REPORT_THEME['panel'], edgecolor=badge_color, linewidth=1.5))
+
+    # 3. Card 1: Estrategia de Reinversión SEC 10-K
+    ax.text(0.0, 0.74, '1. Estrategia de Reinversión según Informes 10-K (SEC):', fontsize=10, fontweight='bold', color=REPORT_THEME['navy'], va='top')
+    sec_desc = analysis_result.get('analisis_sec_reinversion', 'Sin datos descriptivos.')
+    sec_wrapped = textwrap.fill(_esc(sec_desc), width=96)
+    ax.text(0.0, 0.70, sec_wrapped, fontsize=8.8, color=REPORT_THEME['text'], va='top',
+            bbox=dict(boxstyle='square,pad=0.5', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['line'], linewidth=0.8))
+
+    # 4. Card 2: Test del Dólar Retenido & Evolución del BPA
+    ax.text(0.0, 0.53, '2. Test del Dólar Retenido & Evolución del BPA (10 Años):', fontsize=10, fontweight='bold', color=REPORT_THEME['navy'], va='top')
+    metrica = analysis_result.get('metrica_dolar_retenido', '')
+    metrica_wrapped = textwrap.fill(_esc(metrica), width=96)
+    ax.text(0.0, 0.49, metrica_wrapped, fontsize=8.8, color=REPORT_THEME['text'], va='top',
+            bbox=dict(boxstyle='square,pad=0.5', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['line'], linewidth=0.8))
+
+    # 5. Card 3: Política de Retorno al Accionista (Recompras & Dividendos)
+    ax.text(0.0, 0.34, '3. Política de Retorno al Accionista (Recompras & Dividendos):', fontsize=10, fontweight='bold', color=REPORT_THEME['navy'], va='top')
+    politica = analysis_result.get('politica_retorno_accionista', 'Sin política específica reportada.')
+    pol_wrapped = textwrap.fill(_esc(politica), width=96)
+    ax.text(0.0, 0.30, pol_wrapped, fontsize=8.8, color=REPORT_THEME['text'], va='top',
+            bbox=dict(boxstyle='square,pad=0.5', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['line'], linewidth=0.8))
+
+    # 6. Card 4: Dictamen Final de Warren Buffett
+    ax.text(0.0, 0.17, '4. Dictamen Final de Warren Buffett sobre Asignación de Capital:', fontsize=10, fontweight='bold', color=REPORT_THEME['navy'], va='top')
+    conclusion = analysis_result.get('conclusion_buffett', '')
+    conc_wrapped = textwrap.fill(_esc(conclusion), width=96)
+    ax.text(0.0, 0.13, conc_wrapped, fontsize=9.2, fontweight='bold', color=REPORT_THEME['navy'], va='top',
+            bbox=dict(boxstyle='round,pad=0.6', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['teal'], linewidth=1.2))
+
+    pdf.savefig(fig)
+    plt.close(fig)
+
+
+def show_management_alignment_analysis(pdf, analysis_result: dict, ticker: str = ""):
+    """
+    Renderiza la página ejecutiva final de evaluación de alineación de directivos con los accionistas según Warren Buffett.
+    Diseñado con explicaciones claras, sencillas y pedagógicas para cualquier nivel de conocimiento financiero.
+    """
+    if not analysis_result:
+        return
+
+    fig = plt.figure(figsize=(9, 7), dpi=150)
+    fig.patch.set_facecolor(REPORT_THEME['canvas'])
+    ax = fig.add_axes([0.05, 0.03, 0.90, 0.94])
+    ax.set_facecolor(REPORT_THEME['canvas'])
+    ax.axis('off')
+
+    def _esc(t): return str(t).replace('$', r'\$')
+
+    ticker_str = ticker or ""
+    # 1. Encabezado institucional
+    ax.text(0.0, 0.98, f'Evaluación de Alineación Directiva con los Accionistas ({ticker_str})', fontsize=13.0, fontweight='bold', color=REPORT_THEME['navy'], va='top')
+    ax.text(0.0, 0.94, 'Pregunta de Warren Buffett: ¿Cómo es la alineación de los directivos con los intereses de los accionistas?', fontsize=9.0, style='italic', color=REPORT_THEME['muted'], va='top')
+
+    # 2. Veredicto destacado
+    categoria = analysis_result.get('categoria', 'MODERADA')
+    badge_color = REPORT_THEME['positive'] if categoria == 'EXCELENTE' else (REPORT_THEME['teal'] if categoria == 'BUENA' else (REPORT_THEME['negative'] if categoria == 'DEFICIENTE' else REPORT_THEME['gold']))
+    verdicto_corto = analysis_result.get('veredicto_corto', 'Evaluación de Alineación')
+    nivel_alineacion = analysis_result.get('nivel_alineacion', 'Alineación de Intereses')
+    verdict_text = f"VEREDICTO: {_esc(verdicto_corto)}\nNivel: {_esc(nivel_alineacion)}"
+    
+    ax.text(0.5, 0.85, verdict_text, fontsize=10.0, fontweight='bold', ha='center', va='center', color=badge_color,
+            bbox=dict(boxstyle='round,pad=0.5', facecolor=REPORT_THEME['panel'], edgecolor=badge_color, linewidth=1.5))
+
+    # 3. Card 1: Explicación sencilla y pedagógica
+    ax.text(0.0, 0.77, '1. En palabras sencillas (Explicación para todos los públicos):', fontsize=9.8, fontweight='bold', color=REPORT_THEME['navy'], va='top')
+    analogia = analysis_result.get('analogia_sencilla', '')
+    explicacion = analysis_result.get('explicacion_facil', '')
+    card1_text = f"• Analogía: {analogia}\n\n• ¿Cómo cuidan tu dinero?: {explicacion}"
+    card1_wrapped = textwrap.fill(_esc(card1_text), width=96)
+    ax.text(0.0, 0.73, card1_wrapped, fontsize=8.6, color=REPORT_THEME['text'], va='top',
+            bbox=dict(boxstyle='square,pad=0.45', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['line'], linewidth=0.8))
+
+    # 4. Card 2: Evidencia SEC 10-K & DEF 14A
+    ax.text(0.0, 0.54, '2. Evidencia en los Informes de la SEC (Recompras y Piel en el Juego):', fontsize=9.8, fontweight='bold', color=REPORT_THEME['navy'], va='top')
+    sec_evidencia = analysis_result.get('evidencia_sec_remuneracion', '')
+    sec_wrapped = textwrap.fill(_esc(sec_evidencia), width=96)
+    ax.text(0.0, 0.50, sec_wrapped, fontsize=8.6, color=REPORT_THEME['text'], va='top',
+            bbox=dict(boxstyle='square,pad=0.45', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['line'], linewidth=0.8))
+
+    # 5. Card 3: Puntos a favor y alertas
+    ax.text(0.0, 0.36, '3. Puntos Clave a Favor y Alertas para el Inversor:', fontsize=9.8, fontweight='bold', color=REPORT_THEME['navy'], va='top')
+    positivos = analysis_result.get('puntos_positivos', '')
+    alertas = analysis_result.get('alertas_accionista', '')
+    puntos_text = f"Puntos a favor:\n{positivos}\n\nAlertas a vigilar:\n{alertas}"
+    puntos_wrapped = textwrap.fill(_esc(puntos_text), width=96)
+    ax.text(0.0, 0.32, puntos_wrapped, fontsize=8.4, color=REPORT_THEME['text'], va='top',
+            bbox=dict(boxstyle='square,pad=0.45', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['line'], linewidth=0.8))
+
+    # 6. Card 4: Conclusión Final de Warren Buffett
+    ax.text(0.0, 0.15, '4. Dictamen Final de Warren Buffett sobre el Equipo Directivo:', fontsize=9.8, fontweight='bold', color=REPORT_THEME['navy'], va='top')
+    conclusion = analysis_result.get('conclusion_buffett', '')
+    conc_wrapped = textwrap.fill(_esc(conclusion), width=96)
+    ax.text(0.0, 0.11, conc_wrapped, fontsize=8.8, fontweight='bold', color=REPORT_THEME['navy'], va='top',
+            bbox=dict(boxstyle='round,pad=0.5', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['teal'], linewidth=1.2))
+
+    pdf.savefig(fig)
+    plt.close(fig)
+
+
+def show_accounting_forensic_analysis(pdf, analysis_result: dict, ticker: str = ""):
+    """
+    Renderiza la página ejecutiva de auditoría forense y calidad contable según Warren Buffett.
+    Analiza si hay indicios de contabilidad engañosa, discordancias entre caja y beneficios, o anomalías en 10-K.
+    """
+    if not analysis_result:
+        return
+
+    fig = plt.figure(figsize=(9, 7), dpi=150)
+    fig.patch.set_facecolor(REPORT_THEME['canvas'])
+    ax = fig.add_axes([0.05, 0.03, 0.90, 0.94])
+    ax.set_facecolor(REPORT_THEME['canvas'])
+    ax.axis('off')
+
+    def _esc(t): return str(t).replace('$', r'\$')
+
+    ticker_str = ticker or ""
+    # 1. Encabezado institucional
+    ax.text(0.0, 0.98, f'Auditoría Forense y Calidad Contable ({ticker_str})', fontsize=13.0, fontweight='bold', color=REPORT_THEME['navy'], va='top')
+    ax.text(0.0, 0.94, 'Pregunta de Warren Buffett: ¿Hay indicios de contabilidad engañosa o datos que no cuadren?', fontsize=9.0, style='italic', color=REPORT_THEME['muted'], va='top')
+
+    # 2. Veredicto destacado
+    categoria = analysis_result.get('categoria', 'LIMPIA')
+    badge_color = REPORT_THEME['positive'] if categoria == 'LIMPIA' else (REPORT_THEME['negative'] if categoria == 'CRITICA' else REPORT_THEME['gold'])
+    verdicto_corto = analysis_result.get('veredicto_corto', 'Auditoría Forense')
+    calidad = analysis_result.get('calidad_beneficios', 'Calidad Contable')
+    verdict_text = f"VEREDICTO: {_esc(verdicto_corto)}\nCalidad de Beneficios: {_esc(calidad)}"
+    
+    ax.text(0.5, 0.85, verdict_text, fontsize=10.0, fontweight='bold', ha='center', va='center', color=badge_color,
+            bbox=dict(boxstyle='round,pad=0.5', facecolor=REPORT_THEME['panel'], edgecolor=badge_color, linewidth=1.5))
+
+    # 3. Card 1: Coherencia Caja vs Beneficio Neto
+    ax.text(0.0, 0.77, '1. Calidad de los Beneficios (Caja Real vs Beneficio Contable):', fontsize=9.8, fontweight='bold', color=REPORT_THEME['navy'], va='top')
+    caja_desc = analysis_result.get('coherencia_caja_vs_beneficio', '')
+    caja_wrapped = textwrap.fill(_esc(caja_desc), width=96)
+    ax.text(0.0, 0.73, caja_wrapped, fontsize=8.6, color=REPORT_THEME['text'], va='top',
+            bbox=dict(boxstyle='square,pad=0.45', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['line'], linewidth=0.8))
+
+    # 4. Card 2: Análisis de Cobros e Inventarios
+    ax.text(0.0, 0.55, '2. Análisis de Cuentas por Cobrar, Inventarios y Capital Circulante:', fontsize=9.8, fontweight='bold', color=REPORT_THEME['navy'], va='top')
+    cobros_desc = analysis_result.get('analisis_cobros_inventarios', '')
+    cobros_wrapped = textwrap.fill(_esc(cobros_desc), width=96)
+    ax.text(0.0, 0.51, cobros_wrapped, fontsize=8.6, color=REPORT_THEME['text'], va='top',
+            bbox=dict(boxstyle='square,pad=0.45', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['line'], linewidth=0.8))
+
+    # 5. Card 3: Ajustes No-GAAP, Notas 10-K y Señales de Alerta
+    ax.text(0.0, 0.38, '3. Ajustes No-GAAP, Notas a los Informes 10-K y Señales de Alerta:', fontsize=9.8, fontweight='bold', color=REPORT_THEME['navy'], va='top')
+    ajustes_desc = analysis_result.get('analisis_ajustes_y_notas', '')
+    señales = analysis_result.get('señales_alerta', '')
+    ajustes_w = textwrap.fill(_esc(ajustes_desc), width=96)
+    señales_w = textwrap.fill(_esc(señales), width=96)
+    card3_wrapped = f"{ajustes_w}\n\nDiagnóstico de Alertas:\n{señales_w}"
+    ax.text(0.0, 0.34, card3_wrapped, fontsize=8.4, color=REPORT_THEME['text'], va='top',
+            bbox=dict(boxstyle='square,pad=0.45', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['line'], linewidth=0.8))
+
+    # 6. Card 4: Conclusión Final de Warren Buffett
+    ax.text(0.0, 0.15, '4. Dictamen Final de Warren Buffett sobre Integridad Contable:', fontsize=9.8, fontweight='bold', color=REPORT_THEME['navy'], va='top')
+    conclusion = analysis_result.get('conclusion_buffett', '')
+    conc_wrapped = textwrap.fill(_esc(conclusion), width=96)
+    ax.text(0.0, 0.11, conc_wrapped, fontsize=8.8, fontweight='bold', color=REPORT_THEME['navy'], va='top',
+            bbox=dict(boxstyle='round,pad=0.5', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['teal'], linewidth=1.2))
+
+    pdf.savefig(fig)
+    plt.close(fig)
+
 
 class PDFBuilder:
     @staticmethod
@@ -133,7 +746,7 @@ class PDFBuilder:
         df['Ratio entre deuda y fondos propios'] = safe_div(df.get('Pasivo Total', 0), np.where(df.get('Fondos propios totales', 0)==0, 1, df.get('Fondos propios totales', 1)))
         
         # Reservas = Beneficio Neto - Dividendos - Recompras (Acumuladas en el tiempo)
-        divs = np.abs(df.get('Dividendos comunes pagados', df.get('Dividendos de acciones comunes y preferentes pagados', 0)))
+        divs = np.abs(df.get('Dividendos de acciones comunes y preferentes pagados', df.get('Dividendos comunes pagados', 0)))
         recompras = np.abs(df.get('Recompra de acciones comunes', 0))
         df['Reservas'] = (df.get('Beneficio neto de la empresa', 0) - divs - recompras).cumsum()
         
@@ -150,13 +763,42 @@ class PDFBuilder:
         return df.fillna(0)
 
     @staticmethod
-    def generate_pdf_report(ticker: str, current_price: float, df_financials: pd.DataFrame, output_pdf_path: str, sector_config: dict) -> str:
-        logger.info(f"[PDF Builder] Generando los 32 GRÁFICOS MAESTROS para {ticker}...")
+    def generate_pdf_report(
+        ticker: str,
+        current_price: float,
+        df_financials: pd.DataFrame,
+        output_pdf_path: str,
+        sector_config: dict,
+        monopoly_analysis: dict = None,
+        retained_earnings_analysis: dict = None,
+        management_analysis: dict = None,
+        forensic_analysis: dict = None
+    ) -> str:
+        logger.info(f"[PDF Builder] Generando informe completo de Buffettology para {ticker}...")
         
         df = PDFBuilder._calcular_metricas_derivadas(df_financials)
-        content_buffer = BytesIO()
         
-        with PdfPages(content_buffer) as pdf:
+        final_path = output_pdf_path
+        try:
+            with open(final_path, "ab"): pass
+        except PermissionError:
+            timestamp = datetime.now().strftime("%H%M%S")
+            base, ext = os.path.splitext(output_pdf_path)
+            final_path = f"{base}_{timestamp}{ext}"
+
+        with PdfPages(final_path) as pdf:
+            # PÁGINA 1: PANORAMA DE CRECIMIENTO Y VALORACIÓN (CAGR BN, BPA, PER, ROE)
+            try:
+                show_percentage_difference(pdf, df, ticker=ticker, current_price=current_price)
+            except Exception as e:
+                logger.error(f"Error generando tabla show_percentage_difference: {e}", exc_info=True)
+
+            # PÁGINA 2: ANÁLISIS DE CAPEX VS BENEFICIO NETO
+            try:
+                show_capex_vs_netincome(pdf, df, ticker=ticker)
+            except Exception as e:
+                logger.error(f"Error generando tabla show_capex_vs_netincome: {e}", exc_info=True)
+
             # LAS 32 GRÁFICAS DE BUFFETTOLOGY
             graficas_a_generar = [
                 # 1
@@ -226,20 +868,25 @@ class PDFBuilder:
             ]
 
             for col, y_label, title, desc, ref1, col1, ref2, col2 in graficas_a_generar:
-                # Comprobación de seguridad para que no falle si la columna está entera vacía por error
                 if col in df.columns and not df[col].isna().all() and df[col].sum() != 0:
                     try:
-                        fig = plt.figure(figsize=(9, 7))
-                        ax = fig.add_subplot(111)
+                        fig, ax = plt.subplots(figsize=(9, 7), dpi=150)
                         barras = ax.bar(df['Periodo Fiscal'], df[col])
                         formatear_grafica(barras, ax)
                         ax.set_xlabel('Periodo Fiscal')
                         ax.set_ylabel(y_label)
-                        ax.set_title(f'{title} ({ticker})')
-                        plt.text(0.95, 0.95, textwrap.fill(desc, 80), transform=plt.gcf().transFigure, ha='right', va='top', fontsize=9, bbox=dict(facecolor='white', alpha=0.8))
+                        
+                        # Título principal en la parte superior izquierda de la figura (sin colisión)
+                        fig.suptitle(f'{title} ({ticker})', x=0.06, y=0.96, ha='left', fontsize=12.5, fontweight='bold', color=REPORT_THEME["navy"])
+                        
+                        # Subtítulo explicativo en la parte superior del gráfico
+                        wrapped_desc = textwrap.fill(desc, width=90)
+                        ax.set_title(wrapped_desc, loc='left', fontsize=8.8, color=REPORT_THEME["muted"], style='italic', pad=10)
+
                         if ref1 is not None: ax.axhline(y=ref1, color=col1, linestyle='--', label=f'Ref: {ref1}')
                         if ref2 is not None: ax.axhline(y=ref2, color=col2, linestyle='--', label=f'Ref: {ref2}')
-                        if ref1 or ref2: ax.legend(loc='upper left', fontsize=8)
+                        if ref1 or ref2: ax.legend(loc='upper right', fontsize=8.5)
+                        
                         estilizar_figura_profesional(fig)
                         pdf.savefig(fig)
                     except Exception as e:
@@ -247,20 +894,33 @@ class PDFBuilder:
                     finally:
                         plt.close('all')
 
-        writer = PdfWriter()
-        reader = PdfReader(BytesIO(content_buffer.getvalue()))
-        for page in reader.pages:
-            writer.add_page(page)
-            
-        final_path = output_pdf_path
-        try:
-            with open(final_path, "wb") as output_file:
-                writer.write(output_file)
-        except PermissionError:
-            timestamp = datetime.now().strftime("%H%M%S")
-            base, ext = os.path.splitext(output_pdf_path)
-            final_path = f"{base}_{timestamp}{ext}"
-            with open(final_path, "wb") as output_file:
-                writer.write(output_file)
+            # PÁGINA: EVALUACIÓN DE MONOPOLIO DE BUFFETTOLOGY
+            if monopoly_analysis:
+                try:
+                    show_monopoly_analysis(pdf, monopoly_analysis, ticker=ticker)
+                except Exception as e:
+                    logger.error(f"Error generando página de análisis de monopolio: {e}", exc_info=True)
 
+            # PÁGINA: EVALUACIÓN DE BENEFICIOS NO DISTRIBUIDOS (REGLA DEL DÓLAR DE BUFFETT)
+            if retained_earnings_analysis:
+                try:
+                    show_retained_earnings_analysis(pdf, retained_earnings_analysis, ticker=ticker)
+                except Exception as e:
+                    logger.error(f"Error generando página de análisis de beneficios retenidos: {e}", exc_info=True)
+
+            # PÁGINA: EVALUACIÓN DE ALINEACIÓN DIRECTIVA CON LOS ACCIONISTAS
+            if management_analysis:
+                try:
+                    show_management_alignment_analysis(pdf, management_analysis, ticker=ticker)
+                except Exception as e:
+                    logger.error(f"Error generando página de análisis de alineación directiva: {e}", exc_info=True)
+
+            # PÁGINA FINAL: AUDITORÍA FORENSE Y DETECCIÓN DE CONTABILIDAD ENGAÑOSA
+            if forensic_analysis:
+                try:
+                    show_accounting_forensic_analysis(pdf, forensic_analysis, ticker=ticker)
+                except Exception as e:
+                    logger.error(f"Error generando página de auditoría forense contable: {e}", exc_info=True)
+
+        logger.info(f"[PDF Builder] Informe generado exitosamente en: {final_path}")
         return final_path

@@ -9,6 +9,10 @@ from src.agents.sec_agent import SecExtractorAgent
 from src.agents.normalizer_agent import GAAPNormalizerAgent
 from src.agents.sector_agent import SectorConfiguratorAgent
 from src.agents.validator_agent import ValidationAgent
+from src.agents.monopoly_agent import MonopolyAnalysisAgent
+from src.agents.retained_earnings_agent import RetainedEarningsAgent
+from src.agents.management_agent import ManagementAlignmentAgent
+from src.agents.accounting_forensic_agent import AccountingForensicAgent
 from src.agents.pdf_agent import PDFGeneratorAgent
 from config.settings import OUTPUT_DIR
 
@@ -21,6 +25,10 @@ class OrchestratorAgent:
         self.normalizer_agent = GAAPNormalizerAgent()
         self.sector_agent = SectorConfiguratorAgent()
         self.validator_agent = ValidationAgent()
+        self.monopoly_agent = MonopolyAnalysisAgent()
+        self.retained_agent = RetainedEarningsAgent()
+        self.management_agent = ManagementAlignmentAgent()
+        self.forensic_agent = AccountingForensicAgent()
         self.pdf_agent = PDFGeneratorAgent()
 
     def run_analysis(self, ticker: str) -> str:
@@ -91,12 +99,44 @@ class OrchestratorAgent:
         sector_name = market_data.get("sector", "Industrial")
         sector_config = self.sector_agent.configure(sector_name)
         
-        # Paso 7: Generar PDF Final (32 gráficas)
+        # Paso 7: Evaluación de Monopolio y Foso Defensivo (Pregunta 1 de Warren Buffett)
+        monopoly_analysis = self.monopoly_agent.analyze(
+            ticker=ticker,
+            market_data=market_data,
+            sec_data=normalized
+        )
+
+        # Paso 8: Evaluación de Beneficios No Distribuidos y Regla del $1 de Buffett
+        retained_earnings_analysis = self.retained_agent.analyze(
+            ticker=ticker,
+            market_data=market_data,
+            sec_data=normalized
+        )
+
+        # Paso 9: Evaluación de Alineación de Directivos con los Accionistas
+        management_analysis = self.management_agent.analyze(
+            ticker=ticker,
+            market_data=market_data,
+            sec_data=normalized
+        )
+
+        # Paso 10: Auditoría Forense y Detección de Contabilidad Engañosa
+        forensic_analysis = self.forensic_agent.analyze(
+            ticker=ticker,
+            market_data=market_data,
+            sec_data=normalized
+        )
+
+        # Paso 11: Generar PDF Final (Tablas ejecutivas, 32 gráficas y las 4 Evaluaciones de IA)
         pdf_path = self.pdf_agent.generate_pdf(
             ticker=ticker,
             market_data=market_data,
             sec_data=normalized,
-            sector_config=sector_config
+            sector_config=sector_config,
+            monopoly_analysis=monopoly_analysis,
+            retained_earnings_analysis=retained_earnings_analysis,
+            management_analysis=management_analysis,
+            forensic_analysis=forensic_analysis
         )
         
         logger.info(f"=== [Orchestrator] Análisis finalizado con éxito para {ticker}. Archivo generado: {pdf_path} ===")

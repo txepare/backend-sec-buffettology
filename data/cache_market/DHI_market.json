@@ -1,0 +1,19 @@
+{
+  "ticker": "DHI",
+  "company_name": "D.R. Horton, Inc.",
+  "currency": "USD",
+  "current_price": 148.81,
+  "market_cap": 41622347776,
+  "enterprise_value": 41622347776,
+  "pe_ratio": 14.185891,
+  "forward_pe": 12.646524,
+  "peg_ratio": 1.25,
+  "price_to_book": 1.7538421,
+  "shares_outstanding": 279701267,
+  "dividend_yield": 121.0,
+  "beta": 1.375,
+  "52_week_high": 184.55,
+  "52_week_low": 131.75,
+  "sector": "Consumer Cyclical",
+  "industry": "Residential Construction"
+}
