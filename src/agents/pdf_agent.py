@@ -31,6 +31,9 @@ class PDFGeneratorAgent(BaseAgent):
         company_name: str = "",
         sector: str = "",
         analysis_data: Dict[str, Any] = None,
+        company_overview: Dict[str, Any] = None,
+        segments_data: Dict[str, Any] = None,
+        income_flow_data: Dict[str, Any] = None,
         monopoly_analysis: Dict[str, Any] = None,
         retained_earnings_analysis: Dict[str, Any] = None,
         management_analysis: Dict[str, Any] = None,
@@ -46,6 +49,12 @@ class PDFGeneratorAgent(BaseAgent):
             sec_data = analysis_data.get("sec_data", analysis_data.get("normalized", {}))
         if sector_config is None and analysis_data:
             sector_config = analysis_data.get("sector_config", {})
+        if company_overview is None and analysis_data:
+            company_overview = analysis_data.get("company_overview", analysis_data.get("business_overview", {}))
+        if segments_data is None and analysis_data:
+            segments_data = analysis_data.get("segments_data", analysis_data.get("revenue_segments", {}))
+        if income_flow_data is None and analysis_data:
+            income_flow_data = analysis_data.get("income_flow_data", analysis_data.get("flow_data", {}))
         if monopoly_analysis is None and analysis_data:
             monopoly_analysis = analysis_data.get("monopoly_analysis", {})
         if retained_earnings_analysis is None and analysis_data:
@@ -58,6 +67,9 @@ class PDFGeneratorAgent(BaseAgent):
         market_data = market_data or {}
         sec_data = sec_data or {}
         sector_config = sector_config or {}
+        company_overview = company_overview or kwargs.get("company_overview") or kwargs.get("business_overview")
+        segments_data = segments_data or kwargs.get("segments_data") or kwargs.get("revenue_segments")
+        income_flow_data = income_flow_data or kwargs.get("income_flow_data") or kwargs.get("flow_data")
         monopoly_analysis = monopoly_analysis or kwargs.get("monopoly_analysis")
         retained_earnings_analysis = retained_earnings_analysis or kwargs.get("retained_earnings_analysis")
         management_analysis = management_analysis or kwargs.get("management_analysis")
@@ -94,10 +106,14 @@ class PDFGeneratorAgent(BaseAgent):
             df_financials=df_financials,
             output_pdf_path=output_path,
             sector_config=sector_config,
+            company_overview=company_overview,
+            segments_data=segments_data,
+            income_flow_data=income_flow_data,
             monopoly_analysis=monopoly_analysis,
             retained_earnings_analysis=retained_earnings_analysis,
             management_analysis=management_analysis,
-            forensic_analysis=forensic_analysis
+            forensic_analysis=forensic_analysis,
+            market_data=market_data
         )
 
         return result_path

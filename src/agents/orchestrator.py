@@ -9,11 +9,15 @@ from src.agents.sec_agent import SecExtractorAgent
 from src.agents.normalizer_agent import GAAPNormalizerAgent
 from src.agents.sector_agent import SectorConfiguratorAgent
 from src.agents.validator_agent import ValidationAgent
+from src.agents.company_overview_agent import CompanyOverviewAgent
+from src.agents.revenue_segments_agent import RevenueSegmentsAgent
+from src.agents.income_statement_flow_agent import IncomeStatementFlowAgent
 from src.agents.monopoly_agent import MonopolyAnalysisAgent
 from src.agents.retained_earnings_agent import RetainedEarningsAgent
 from src.agents.management_agent import ManagementAlignmentAgent
 from src.agents.accounting_forensic_agent import AccountingForensicAgent
 from src.agents.pdf_agent import PDFGeneratorAgent
+from src.tools.cache_manager import CacheManager
 from config.settings import OUTPUT_DIR
 
 logger = logging.getLogger(__name__)
@@ -25,6 +29,9 @@ class OrchestratorAgent:
         self.normalizer_agent = GAAPNormalizerAgent()
         self.sector_agent = SectorConfiguratorAgent()
         self.validator_agent = ValidationAgent()
+        self.overview_agent = CompanyOverviewAgent()
+        self.segments_agent = RevenueSegmentsAgent()
+        self.flow_agent = IncomeStatementFlowAgent()
         self.monopoly_agent = MonopolyAnalysisAgent()
         self.retained_agent = RetainedEarningsAgent()
         self.management_agent = ManagementAlignmentAgent()
@@ -99,45 +106,76 @@ class OrchestratorAgent:
         sector_name = market_data.get("sector", "Industrial")
         sector_config = self.sector_agent.configure(sector_name)
         
-        # Paso 7: Evaluación de Monopolio y Foso Defensivo (Pregunta 1 de Warren Buffett)
+        # Paso 7: Descripción y Modelo de Negocio de la Empresa (Página 1 del Documento)
+        company_overview = self.overview_agent.analyze(
+            ticker=ticker,
+            market_data=market_data,
+            sec_data=normalized
+        )
+
+        # Paso 8: Fuentes de Ingresos y Desglose Histórico por Segmentos (Página 2 del Documento)
+        segments_data = self.segments_agent.analyze(
+            ticker=ticker,
+            market_data=market_data,
+            sec_data=normalized
+        )
+
+        # Paso 9: Diagrama Sankey del Flujo del Estado de Resultados del Último Año (Página 3 del Documento)
+        income_flow_data = self.flow_agent.prepare_flow_data(
+            ticker=ticker,
+            market_data=market_data,
+            sec_data=normalized,
+            segments_data=segments_data
+        )
+
+        # Paso 10: Evaluación de Monopolio y Foso Defensivo (Pregunta 1 de Warren Buffett)
         monopoly_analysis = self.monopoly_agent.analyze(
             ticker=ticker,
             market_data=market_data,
             sec_data=normalized
         )
 
-        # Paso 8: Evaluación de Beneficios No Distribuidos y Regla del $1 de Buffett
+        # Paso 11: Evaluación de Beneficios No Distribuidos y Regla del $1 de Buffett
         retained_earnings_analysis = self.retained_agent.analyze(
             ticker=ticker,
             market_data=market_data,
             sec_data=normalized
         )
 
-        # Paso 9: Evaluación de Alineación de Directivos con los Accionistas
+        # Paso 12: Evaluación de Alineación de Directivos con los Accionistas
         management_analysis = self.management_agent.analyze(
             ticker=ticker,
             market_data=market_data,
             sec_data=normalized
         )
 
-        # Paso 10: Auditoría Forense y Detección de Contabilidad Engañosa
+        # Paso 13: Auditoría Forense y Detección de Contabilidad Engañosa
         forensic_analysis = self.forensic_agent.analyze(
             ticker=ticker,
             market_data=market_data,
             sec_data=normalized
         )
 
-        # Paso 11: Generar PDF Final (Tablas ejecutivas, 32 gráficas y las 4 Evaluaciones de IA)
+        # Paso 14: Generar PDF Final (Página 1: Perfil, Página 2: Segmentos, Página 3: Sankey Flow, Tablas, Gráficas y Evaluaciones de IA)
         pdf_path = self.pdf_agent.generate_pdf(
             ticker=ticker,
             market_data=market_data,
             sec_data=normalized,
             sector_config=sector_config,
+            company_overview=company_overview,
+            segments_data=segments_data,
+            income_flow_data=income_flow_data,
             monopoly_analysis=monopoly_analysis,
             retained_earnings_analysis=retained_earnings_analysis,
             management_analysis=management_analysis,
             forensic_analysis=forensic_analysis
         )
         
+        # Paso 15: Mantenimiento y optimización automática del espacio en caché
+        try:
+            CacheManager.auto_clean()
+        except Exception as e:
+            logger.warning(f"[Orchestrator] Error en la optimización automática del caché: {e}")
+
         logger.info(f"=== [Orchestrator] Análisis finalizado con éxito para {ticker}. Archivo generado: {pdf_path} ===")
         return pdf_path

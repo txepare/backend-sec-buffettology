@@ -65,22 +65,35 @@ class MarketDataAPI:
         # --- CANAL 2: yfinance FastInfo / History ---
         try:
             stock = yf.Ticker(clean_ticker)
-            if current_price == 0.0:
-                fast_price = stock.fast_info.get("last_price") or stock.fast_info.get("previous_close")
-                if fast_price:
-                    current_price = float(fast_price)
-            if market_cap == 0:
-                market_cap = int(stock.fast_info.get("market_cap", 0) or 0)
-            if shares_outstanding == 0:
-                shares_outstanding = int(stock.fast_info.get("shares", 0) or 0)
-            if fifty_two_week_high == 0.0:
-                fifty_two_week_high = float(stock.fast_info.get("year_high", 0.0) or 0.0)
-            if fifty_two_week_low == 0.0:
-                fifty_two_week_low = float(stock.fast_info.get("year_low", 0.0) or 0.0)
+            if hasattr(stock, "fast_info") and stock.fast_info is not None:
+                fi = stock.fast_info
+                # Precio
+                if current_price == 0.0:
+                    p_cand = getattr(fi, "last_price", None) or getattr(fi, "lastPrice", None) or getattr(fi, "previous_close", None) or getattr(fi, "previousClose", None)
+                    if p_cand:
+                        current_price = float(p_cand)
+                # Market Cap
+                if market_cap == 0:
+                    mc_cand = getattr(fi, "market_cap", None) or getattr(fi, "marketCap", None) or (fi.get("marketCap") if hasattr(fi, "get") else None)
+                    if mc_cand:
+                        market_cap = int(float(mc_cand))
+                # Shares
+                if shares_outstanding == 0:
+                    sh_cand = getattr(fi, "shares", None) or (fi.get("shares") if hasattr(fi, "get") else None)
+                    if sh_cand:
+                        shares_outstanding = int(float(sh_cand))
+                # 52w High / Low
+                if fifty_two_week_high == 0.0:
+                    yh = getattr(fi, "year_high", None) or getattr(fi, "yearHigh", None)
+                    if yh: fifty_two_week_high = float(yh)
+                if fifty_two_week_low == 0.0:
+                    yl = getattr(fi, "year_low", None) or getattr(fi, "yearLow", None)
+                    if yl: fifty_two_week_low = float(yl)
         except Exception as e:
             logger.debug(f"[Market API] Canal 2 (FastInfo) aviso: {e}")
 
-        # --- CANAL 3: yfinance stock.info (Para sector, industria y múltiplos) ---
+        # --- CANAL 3: yfinance stock.info (Para sector, industria, descripción y múltiplos) ---
+        description = ""
         try:
             session = requests.Session()
             session.headers.update({
@@ -96,6 +109,7 @@ class MarketDataAPI:
                 company_name = info.get("longName", company_name)
                 sector = info.get("sector", sector)
                 industry = info.get("industry", industry)
+                description = info.get("longBusinessSummary") or info.get("description") or ""
                 pe_ratio = float(info.get("trailingPE") or info.get("forwardPE") or 0.0)
                 forward_pe = float(info.get("forwardPE", 0.0) or 0.0)
                 peg_ratio = float(info.get("pegRatio", 0.0) or 0.0)
@@ -109,6 +123,10 @@ class MarketDataAPI:
                     shares_outstanding = int(info.get("sharesOutstanding", 0) or 0)
         except Exception as e:
             logger.debug(f"[Market API] Canal 3 (Stock info) no crítico: {e}")
+
+        # Si aún no tenemos market_cap pero tenemos precio y acciones, calcularlo
+        if market_cap == 0 and current_price > 0.0 and shares_outstanding > 0:
+            market_cap = int(current_price * shares_outstanding)
 
         # --- CANAL 4: Fallback de historial ---
         if current_price == 0.0:
@@ -138,7 +156,9 @@ class MarketDataAPI:
                 "52_week_high": fifty_two_week_high,
                 "52_week_low": fifty_two_week_low,
                 "sector": sector,
-                "industry": industry
+                "industry": industry,
+                "description": description,
+                "business_summary": description
             }
             try:
                 with open(cache_file, "w", encoding="utf-8") as f:
@@ -178,5 +198,7 @@ class MarketDataAPI:
             "52_week_high": 0.0,
             "52_week_low": 0.0,
             "sector": "Desconocido",
-            "industry": "Desconocida"
+            "industry": "Desconocida",
+            "description": "",
+            "business_summary": ""
         }

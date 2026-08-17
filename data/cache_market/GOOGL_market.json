@@ -2,7 +2,7 @@
   "ticker": "GOOGL",
   "company_name": "Alphabet Inc.",
   "currency": "USD",
-  "current_price": 345.9,
+  "current_price": 344.0,
   "market_cap": 0,
   "enterprise_value": 0,
   "pe_ratio": 0.0,
@@ -15,5 +15,7 @@
   "52_week_high": 408.61,
   "52_week_low": 196.6,
   "sector": "Industrial",
-  "industry": "General"
+  "industry": "General",
+  "description": "",
+  "business_summary": ""
 }

@@ -53,10 +53,10 @@ def formato_legible(num):
     if abs(num) < 10 and num % 1 != 0: return f'{num:.2f}'
     magnitude = 0
     val = abs(num)
-    while val >= 1000 and magnitude < 3:
+    while val >= 1000 and magnitude < 4:
         magnitude += 1
         val /= 1000.0
-    suffix = ['', 'K', 'M', 'B'][magnitude]
+    suffix = ['', 'K', 'M', 'B', 'T'][magnitude]
     signo = "-" if num < 0 else ""
     formateado = f"{val:.2f}".rstrip('0').rstrip('.')
     return f'{signo}{formateado}{suffix}'
@@ -442,8 +442,247 @@ def show_capex_vs_netincome(pdf, df, ticker: str = ""):
         )
     )
 
+def show_company_overview(pdf, overview_result: dict, ticker: str = "", market_data: dict = None):
+    """
+    Renderiza la primera página del informe PDF explicando qué hace la empresa,
+    sus productos/servicios, modelo de ingresos y evaluación en el Círculo de Competencia de Warren Buffett.
+    """
+    if not overview_result:
+        return
+
+    market_data = market_data or {}
+    company_name = market_data.get("company_name", ticker)
+    sector = market_data.get("sector", "Desconocido")
+    industry = market_data.get("industry", "Desconocida")
+    current_price = float(market_data.get("current_price", 0.0) or 0.0)
+    market_cap = float(market_data.get("market_cap", 0) or 0)
+
+    # Si market_cap no vino en market_data pero tenemos acciones, calcularlo
+    if market_cap <= 0 and current_price > 0:
+        shares = float(market_data.get("shares_outstanding", 0) or 0)
+        if shares > 0:
+            market_cap = current_price * shares
+            market_data["market_cap"] = int(market_cap)
+
+    fig = plt.figure(figsize=(9, 7), dpi=150)
+    fig.patch.set_facecolor(REPORT_THEME['canvas'])
+    ax = fig.add_axes([0.05, 0.03, 0.90, 0.94])
+    ax.set_facecolor(REPORT_THEME['canvas'])
+    ax.axis('off')
+
+    def _esc(t): return str(t).replace('$', r'\$')
+
+    ticker_str = ticker or ""
+    # 1. Encabezado institucional de la Empresa
+    ax.text(0.0, 0.985, f'{company_name} ({ticker_str}) - Perfil & Modelo de Negocio', fontsize=13.0, fontweight='bold', color=REPORT_THEME['navy'], va='top')
+    
+    # Subtítulo con datos clave de mercado (formatear Market Cap legiblemente)
+    if market_cap > 0:
+        mcap_formatted = formato_legible(market_cap)
+        mcap_str = f"${mcap_formatted}" if not mcap_formatted.startswith("$") else mcap_formatted
+    else:
+        mcap_str = "N/A"
+
+    price_str = f"${current_price:.2f}" if current_price > 0 else "N/A"
+    sub_info = f"Sector: {sector}  |  Industria: {industry}  |  Cotización: {price_str}  |  Market Cap: {mcap_str}"
+    ax.text(0.0, 0.950, _esc(sub_info), fontsize=8.6, color=REPORT_THEME['muted'], va='top')
+
+    # 2. Veredicto destacado: Círculo de Competencia y Predictibilidad
+    categoria = overview_result.get('categoria_comprensibilidad', 'ALTO')
+    badge_color = REPORT_THEME['positive'] if categoria == 'ALTO' else (REPORT_THEME['teal'] if categoria == 'MODERADO' else REPORT_THEME['negative'])
+    verdicto = overview_result.get('veredicto_comprensibilidad', 'Evaluación de Comprensibilidad')
+    desc_corta = overview_result.get('descripcion_corta', '')
+    verdict_text = f"CÍRCULO DE COMPETENCIA DE BUFFETT: {_esc(verdicto)}\n{_esc(desc_corta)}"
+    
+    ax.text(0.5, 0.890, verdict_text, fontsize=9.0, fontweight='bold', ha='center', va='center', color=badge_color,
+            bbox=dict(boxstyle='round,pad=0.45', facecolor=REPORT_THEME['panel'], edgecolor=badge_color, linewidth=1.4))
+
+    # Preparar las 4 tarjetas de contenido
+    cards = [
+        (
+            '1. ¿Qué hace la empresa y cuáles son sus principales productos o servicios?:',
+            overview_result.get('resumen_actividad', 'Sin datos descriptivos.')
+        ),
+        (
+            '2. ¿Cómo gana dinero? (Modelo de Ingresos y Fuentes de Monetización):',
+            overview_result.get('modelo_ingresos', 'Sin detalles de ingresos.')
+        ),
+        (
+            '3. Clientes, Mercado Objetivo y Propuesta de Valor Diferencial:',
+            f"• Clientes y Alcance: {overview_result.get('mercado_y_clientes', '')}\n\n• Propuesta de Valor: {overview_result.get('propuesta_valor', '')}"
+        ),
+        (
+            '4. Dictamen de Warren Buffett sobre el Entendimiento del Negocio:',
+            overview_result.get('circulo_competencia', '')
+        )
+    ]
+
+    # Distribución vertical dinámica con cálculo exacto de altura de caja
+    curr_y = 0.825
+    wrap_w = 98
+    font_s = 8.0
+
+    for idx, (title, raw_body) in enumerate(cards):
+        # Título de la sección
+        ax.text(0.0, curr_y, title, fontsize=9.0, fontweight='bold', color=REPORT_THEME['navy'], va='top')
+        curr_y -= 0.026
+
+        body_wrapped = textwrap.fill(_esc(raw_body), width=wrap_w)
+        num_lines = len(body_wrapped.split('\n'))
+        
+        box_style = 'round,pad=0.40' if idx == 3 else 'square,pad=0.35'
+        box_edge = REPORT_THEME['teal'] if idx == 3 else REPORT_THEME['line']
+        box_font = 8.2 if idx == 3 else font_s
+        box_weight = 'bold' if idx == 3 else 'normal'
+        box_color = REPORT_THEME['navy'] if idx == 3 else REPORT_THEME['text']
+
+        ax.text(0.0, curr_y, body_wrapped, fontsize=box_font, fontweight=box_weight, color=box_color, va='top',
+                bbox=dict(boxstyle=box_style, facecolor=REPORT_THEME['panel'], edgecolor=box_edge, linewidth=1.1 if idx==3 else 0.8))
+
+        # Altura real de la caja con padding de matplotlib
+        box_height = num_lines * 0.0215 + 0.028
+        curr_y -= (box_height + 0.022)
+
     pdf.savefig(fig)
     plt.close(fig)
+
+
+def show_revenue_segments_table(pdf, segments_result: dict, ticker: str = "", market_data: dict = None):
+    """
+    Renderiza la Página 2 del documento PDF: Tabla histórica de fuentes de ingresos por años,
+    pesos porcentuales, crecimiento interanual y análisis de diversificación.
+    """
+    if not segments_result:
+        return
+
+    market_data = market_data or {}
+    company_name = market_data.get("company_name", ticker)
+
+    fig = plt.figure(figsize=(9, 7), dpi=150)
+    fig.patch.set_facecolor(REPORT_THEME['canvas'])
+    ax = fig.add_axes([0.05, 0.03, 0.90, 0.94])
+    ax.set_facecolor(REPORT_THEME['canvas'])
+    ax.axis('off')
+
+    def _esc(t): return str(t).replace('$', r'\$')
+
+    ticker_str = ticker or ""
+    # 1. Encabezado institucional
+    ax.text(0.0, 0.985, f'{company_name} ({ticker_str}) - Desglose de Fuentes de Ingresos', fontsize=13.0, fontweight='bold', color=REPORT_THEME['navy'], va='top')
+    unit_str = segments_result.get("unidad_monetaria", "Billion USD")
+    ax.text(0.0, 0.950, f'Evolución histórica por líneas de negocio ({unit_str}) y grado de diversificación', fontsize=8.6, style='italic', color=REPORT_THEME['muted'], va='top')
+
+    # 2. Construir datos de la tabla
+    years = segments_result.get("years", segments_result.get("años", []))
+    historico = segments_result.get("historico_segmentos", {})
+    seg_meta = {s.get("nombre"): s for s in segments_result.get("segmentos", [])}
+
+    col_labels = ["Línea de Negocio / Segmento"] + [f"FY {y}" for y in years] + ["% Total", "Crec. YoY"]
+    
+    table_data = []
+    totales_por_ano = [0.0] * len(years)
+
+    for seg_name, vals in historico.items():
+        row = [textwrap.fill(seg_name, width=26)]
+        for idx, v in enumerate(vals):
+            row.append(f"{v:.1f}" if isinstance(v, (int, float)) else str(v))
+            if idx < len(totales_por_ano) and isinstance(v, (int, float)):
+                totales_por_ano[idx] += v
+        
+        meta = seg_meta.get(seg_name, {})
+        pct_val = meta.get("porcentaje_ultimo_ano")
+        pct_str = f"{pct_val:.1f}%" if pct_val is not None else "N/A"
+        row.append(pct_str)
+
+        yoy_val = meta.get("crecimiento_yoy_pct")
+        yoy_str = f"{yoy_val:+.1f}%" if yoy_val is not None else "N/A"
+        row.append(yoy_str)
+        table_data.append(row)
+
+    if any(totales_por_ano):
+        total_row = ["TOTAL INGRESOS"] + [f"{t:.1f}" for t in totales_por_ano] + ["100.0%", ""]
+        table_data.append(total_row)
+
+    n_cols = len(col_labels)
+    w_first = 0.38
+    w_other = (1.0 - w_first) / max(n_cols - 1, 1)
+    col_widths = [w_first] + [w_other] * (n_cols - 1)
+
+    table_h = min(0.32, 0.040 * (len(table_data) + 1))
+    table_y = 0.920 - table_h
+
+    table = ax.table(
+        cellText=table_data,
+        colLabels=col_labels,
+        colWidths=col_widths,
+        bbox=[0.0, table_y, 1.0, table_h],
+        loc='center',
+        cellLoc='center'
+    )
+    table.auto_set_font_size(False)
+    table.set_fontsize(8.4)
+    estilizar_tabla(table)
+
+    # 3. Card 1: Descripción de cada línea de negocio con viñetas estructuradas
+    curr_y = table_y - 0.040
+    ax.text(0.0, curr_y, '1. Descripción de las Líneas de Negocio y Segmentos:', fontsize=9.0, fontweight='bold', color=REPORT_THEME['navy'], va='top')
+    curr_y -= 0.026
+
+    desc_lines = []
+    for s in segments_result.get("segmentos", []):
+        s_name = s.get("nombre", "")
+        s_desc = s.get("descripcion", "")
+        formatted_bullet = textwrap.fill(f"• {s_name}: {s_desc}", width=96, subsequent_indent="  ")
+        desc_lines.append(formatted_bullet)
+    
+    desc_full_text = "\n".join(desc_lines)
+    num_lines_desc = len(desc_full_text.split('\n'))
+    h_desc_box = num_lines_desc * 0.0205 + 0.026
+
+    ax.text(0.0, curr_y, _esc(desc_full_text), fontsize=7.8, color=REPORT_THEME['text'], va='top',
+            bbox=dict(boxstyle='square,pad=0.38', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['line'], linewidth=0.8))
+    
+    curr_y -= (h_desc_box + 0.035)
+
+    # 4. Card 2: Análisis de Diversificación y Riesgo de Concentración
+    ax.text(0.0, curr_y, '2. Análisis de Diversificación y Riesgo de Concentración de Ingresos:', fontsize=9.0, fontweight='bold', color=REPORT_THEME['navy'], va='top')
+    curr_y -= 0.026
+    
+    analisis_div = segments_result.get("analisis_diversificacion", "La empresa cuenta con un modelo diversificado de ingresos.")
+    div_wrapped = textwrap.fill(_esc(analisis_div), width=96)
+    
+    ax.text(0.0, curr_y, div_wrapped, fontsize=8.2, fontweight='bold', color=REPORT_THEME['navy'], va='top',
+            bbox=dict(boxstyle='round,pad=0.40', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['teal'], linewidth=1.2))
+
+    pdf.savefig(fig)
+    plt.close(fig)
+
+
+def show_income_statement_flow(pdf, flow_data: dict, ticker: str = "", market_data: dict = None):
+    """
+    Renderiza la Página 3 del documento PDF: Diagrama de flujo Sankey del estado de resultados del último año fiscal.
+    """
+    if not flow_data:
+        return
+
+    try:
+        from src.tools.sankey_builder import SankeyFlowBuilder
+        company_name = (market_data or {}).get("company_name", ticker)
+        year = flow_data.get("year", "2024")
+        segments = flow_data.get("segments_data", [])
+        financial_flow = flow_data.get("financial_flow", {})
+        
+        fig = SankeyFlowBuilder.generate_sankey_figure(
+            ticker=ticker,
+            company_name=company_name,
+            year=year,
+            segments_data=segments,
+            financial_flow=financial_flow
+        )
+        pdf.savefig(fig)
+        plt.close(fig)
+    except Exception as e:
+        logger.error(f"Error generando diagrama Sankey de estado de resultados: {e}", exc_info=True)
 
 
 def show_monopoly_analysis(pdf, analysis_result: dict, ticker: str = ""):
@@ -769,10 +1008,14 @@ class PDFBuilder:
         df_financials: pd.DataFrame,
         output_pdf_path: str,
         sector_config: dict,
+        company_overview: dict = None,
+        segments_data: dict = None,
+        income_flow_data: dict = None,
         monopoly_analysis: dict = None,
         retained_earnings_analysis: dict = None,
         management_analysis: dict = None,
-        forensic_analysis: dict = None
+        forensic_analysis: dict = None,
+        market_data: dict = None
     ) -> str:
         logger.info(f"[PDF Builder] Generando informe completo de Buffettology para {ticker}...")
         
@@ -786,14 +1029,44 @@ class PDFBuilder:
             base, ext = os.path.splitext(output_pdf_path)
             final_path = f"{base}_{timestamp}{ext}"
 
+        market_data = market_data or {}
+        if market_data:
+            mcap = float(market_data.get("market_cap", 0) or 0)
+            if mcap <= 0 and current_price > 0:
+                if 'Promedio ponderado de acciones diluidas en circulacion' in df.columns:
+                    valid_sh = df['Promedio ponderado de acciones diluidas en circulacion'].dropna()
+                    if not valid_sh.empty and float(valid_sh.iloc[-1]) > 0:
+                        market_data["market_cap"] = int(current_price * float(valid_sh.iloc[-1]))
+
         with PdfPages(final_path) as pdf:
-            # PÁGINA 1: PANORAMA DE CRECIMIENTO Y VALORACIÓN (CAGR BN, BPA, PER, ROE)
+            # PÁGINA 1: DESCRIPCIÓN DE LA EMPRESA, ACTIVIDAD Y MODELO DE NEGOCIO (AGENTE DE OVERVIEW)
+            if company_overview:
+                try:
+                    show_company_overview(pdf, company_overview, ticker=ticker, market_data=market_data)
+                except Exception as e:
+                    logger.error(f"Error generando página de descripción de la empresa: {e}", exc_info=True)
+
+            # PÁGINA 2: DESGLOSE Y FUENTES DE INGRESOS POR AÑOS (REVENUE SEGMENTS AGENT)
+            if segments_data:
+                try:
+                    show_revenue_segments_table(pdf, segments_data, ticker=ticker, market_data=market_data)
+                except Exception as e:
+                    logger.error(f"Error generando página de fuentes de ingresos: {e}", exc_info=True)
+
+            # PÁGINA 3: DIAGRAMA SANKEY DEL ESTADO DE RESULTADOS (INCOME STATEMENT FLOW AGENT)
+            if income_flow_data:
+                try:
+                    show_income_statement_flow(pdf, income_flow_data, ticker=ticker, market_data=market_data)
+                except Exception as e:
+                    logger.error(f"Error generando diagrama Sankey de estado de resultados: {e}", exc_info=True)
+
+            # PÁGINA 4: PANORAMA DE CRECIMIENTO Y VALORACIÓN (CAGR BN, BPA, PER, ROE)
             try:
                 show_percentage_difference(pdf, df, ticker=ticker, current_price=current_price)
             except Exception as e:
                 logger.error(f"Error generando tabla show_percentage_difference: {e}", exc_info=True)
 
-            # PÁGINA 2: ANÁLISIS DE CAPEX VS BENEFICIO NETO
+            # PÁGINA 5: ANÁLISIS DE CAPEX VS BENEFICIO NETO
             try:
                 show_capex_vs_netincome(pdf, df, ticker=ticker)
             except Exception as e:
