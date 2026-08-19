@@ -13,6 +13,7 @@ matplotlib.rcParams['figure.max_open_warning'] = 0
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.ticker import FuncFormatter
+import matplotlib.patches as patches
 
 logger = logging.getLogger(__name__)
 
@@ -94,27 +95,28 @@ def estilizar_figura_profesional(fig):
     except Exception:
         pass
 
-def estilizar_tabla(table):
+def estilizar_tabla(table, header_fontsize: float = 9.5, cell_fontsize: float = 8.5, pad: float = 0.05):
     """
     Aplica una estética limpia y profesional a las tablas de matplotlib acorde al tema corporativo,
     asegurando márgenes internos para que el texto nunca se corte ni se solape.
     """
     for (row, col), cell in table.get_celld().items():
         cell.set_edgecolor(REPORT_THEME["line"])
-        cell.set_linewidth(1.0)
-        cell.PAD = 0.06
+        cell.set_linewidth(0.9)
+        cell.PAD = pad
         if row == 0:
             cell.set_facecolor(REPORT_THEME["navy"])
             cell.get_text().set_color("white")
             cell.get_text().set_fontweight("bold")
-            cell.get_text().set_fontsize(10.5)
+            cell.get_text().set_fontsize(header_fontsize)
         else:
             cell.set_facecolor(REPORT_THEME["panel"] if row % 2 == 0 else REPORT_THEME["canvas"])
             cell.get_text().set_color(REPORT_THEME["text"])
-            cell.get_text().set_fontsize(9.5)
+            cell.get_text().set_fontsize(cell_fontsize)
             if col == 0:
                 cell.get_text().set_fontweight("bold")
                 cell.get_text().set_ha("left")
+
 
 def _calcular_cagrs_adaptativos(s: pd.Series):
     """
@@ -300,20 +302,20 @@ def show_percentage_difference(pdf, df, ticker: str = "", current_price: float =
 
     cell_data = []
     for m, v in zip(metricas_raw, valores_raw):
-        cell_data.append([textwrap.fill(m, width=38), str(v)])
+        cell_data.append([textwrap.fill(m, width=42), str(v)])
 
     # ---------- Renderizar figura dentro de márgenes estrictos ----------
     fig = plt.figure(figsize=(9, 7), dpi=150)
     fig.patch.set_facecolor(REPORT_THEME["canvas"])
-    ax = fig.add_axes([0.06, 0.06, 0.88, 0.88])
+    ax = fig.add_axes([0.06, 0.05, 0.88, 0.90])
     ax.set_facecolor(REPORT_THEME["canvas"])
     ax.axis('off')
     
     ticker_str = ticker or ""
     ax.text(
-        0.0, 0.98,
+        0.0, 0.985,
         f'Panorama de crecimiento y valoracion ({ticker_str})',
-        fontsize=14,
+        fontsize=13.5,
         fontweight='bold',
         color=REPORT_THEME["navy"],
         ha='left',
@@ -322,12 +324,12 @@ def show_percentage_difference(pdf, df, ticker: str = "", current_price: float =
 
     sub_text = textwrap.fill(
         "Comparar el CAGR del Beneficio Neto con el CAGR del BPA para comprobar si la empresa crece por su propio motor o por las recompras de acciones.",
-        width=80
+        width=85
     )
     ax.text(
-        0.0, 0.91,
+        0.0, 0.935,
         sub_text,
-        fontsize=9.5,
+        fontsize=9.0,
         ha='left',
         va='top',
         color=REPORT_THEME["muted"]
@@ -337,14 +339,13 @@ def show_percentage_difference(pdf, df, ticker: str = "", current_price: float =
         cellText=cell_data,
         colLabels=['Métrica', 'Valor'],
         colWidths=[0.68, 0.32],
-        bbox=[0.0, 0.04, 1.0, 0.78],
+        bbox=[0.0, 0.05, 1.0, 0.82],
         loc='center',
         cellLoc='center'
     )
 
     table.auto_set_font_size(False)
-    table.set_fontsize(10)
-    estilizar_tabla(table)
+    estilizar_tabla(table, header_fontsize=10.0, cell_fontsize=9.0, pad=0.06)
 
     pdf.savefig(fig)
     plt.close(fig)
@@ -367,20 +368,20 @@ def show_capex_vs_netincome(pdf, df, ticker: str = ""):
         cociente_str = "N/A (Beneficio Neto Total = 0)"
         color_mensaje = REPORT_THEME["negative"]
 
-    metric_label = textwrap.fill("Gasto de Capital Total / Beneficio Neto Total (%)", width=42)
+    metric_label = textwrap.fill("Gasto de Capital Total / Beneficio Neto Total (%)", width=46)
     cell_data = [[metric_label, cociente_str]]
 
     fig = plt.figure(figsize=(9, 7), dpi=150)
     fig.patch.set_facecolor(REPORT_THEME["canvas"])
-    ax = fig.add_axes([0.06, 0.06, 0.88, 0.88])
+    ax = fig.add_axes([0.06, 0.05, 0.88, 0.90])
     ax.set_facecolor(REPORT_THEME["canvas"])
     ax.axis('off')
 
     ticker_str = ticker or ""
     ax.text(
-        0.0, 0.98,
+        0.0, 0.985,
         f'Análisis de Inversión ({ticker_str}): Gastos de Capital vs. Beneficio Neto',
-        fontsize=13.5,
+        fontsize=13.0,
         fontweight='bold',
         color=REPORT_THEME["navy"],
         ha='left',
@@ -392,14 +393,14 @@ def show_capex_vs_netincome(pdf, df, ticker: str = ""):
         width=82
     )
     ax.text(
-        0.5, 0.86,
+        0.5, 0.88,
         mensaje_regla,
-        fontsize=9.5,
+        fontsize=9.2,
         ha='center',
         va='top',
         color=REPORT_THEME["text"],
         bbox=dict(
-            boxstyle='round,pad=0.7',
+            boxstyle='round,pad=0.6',
             facecolor=REPORT_THEME["panel"],
             edgecolor=REPORT_THEME["line"],
             linewidth=1.0
@@ -410,14 +411,13 @@ def show_capex_vs_netincome(pdf, df, ticker: str = ""):
         cellText=cell_data,
         colLabels=['Métrica', 'Valor Calculado'],
         colWidths=[0.68, 0.32],
-        bbox=[0.05, 0.42, 0.90, 0.24],
+        bbox=[0.05, 0.46, 0.90, 0.18],
         loc='center',
         cellLoc='center'
     )
 
     table.auto_set_font_size(False)
-    table.set_fontsize(10.5)
-    estilizar_tabla(table)
+    estilizar_tabla(table, header_fontsize=10.0, cell_fontsize=9.6, pad=0.06)
 
     if cociente_total is not None and cociente_total < 50:
         diag_text = f"CUMPLE LA REGLA: {cociente_str} (< 50%)\nLa empresa retiene la mayor parte de sus beneficios sin requerir un CapEx intensivo."
@@ -426,26 +426,147 @@ def show_capex_vs_netincome(pdf, df, ticker: str = ""):
     else:
         diag_text = f"Resultado del Análisis: {cociente_str}"
 
+    color_mensaje = REPORT_THEME['positive'] if (cociente_total is not None and cociente_total < 50) else (REPORT_THEME['negative'] if cociente_total is not None else REPORT_THEME['navy'])
     ax.text(
-        0.5, 0.22,
+        0.5, 0.24,
         diag_text,
-        fontsize=11,
+        fontsize=10.5,
         fontweight='bold',
         ha='center',
         va='center',
         color=color_mensaje,
         bbox=dict(
-            boxstyle='round,pad=0.8',
+            boxstyle='round,pad=0.7',
             facecolor=REPORT_THEME["panel"],
             edgecolor=color_mensaje,
-            linewidth=1.5
+            linewidth=1.4
         )
     )
 
+    pdf.savefig(fig)
+    plt.close(fig)
+
+
+def _render_dynamic_executive_cards_page(
+    pdf,
+    main_title: str,
+    subtitle: str,
+    verdict_text: str,
+    badge_color: str,
+    cards: list,
+    ticker: str = ""
+):
+    """
+    Motor de maquetación dinámico para páginas ejecutivas con tarjetas de texto.
+    Aprovecha el 100% del lienzo vertical de la página distribuyendo las tarjetas
+    de forma proporcional, con tipografías legibles, fondos elegantes y paneles pulidos.
+    """
+    fig = plt.figure(figsize=(9.5, 7.2), dpi=150)
+    fig.patch.set_facecolor(REPORT_THEME['canvas'])
+    ax = fig.add_axes([0.045, 0.035, 0.91, 0.93])
+    ax.set_facecolor(REPORT_THEME['canvas'])
+    ax.axis('off')
+
+    def _esc(t): return str(t or "").replace('$', r'\$')
+
+    # 1. Encabezado institucional
+    ax.text(0.0, 0.985, _esc(main_title), fontsize=13.0, fontweight='bold', color=REPORT_THEME['navy'], va='top')
+    ax.text(0.0, 0.948, _esc(subtitle), fontsize=8.8, style='italic', color=REPORT_THEME['muted'], va='top')
+
+    # 2. Veredicto destacado
+    ax.text(0.5, 0.885, _esc(verdict_text), fontsize=9.2, fontweight='bold', ha='center', va='center', color=badge_color,
+            bbox=dict(boxstyle='round,pad=0.42', facecolor=REPORT_THEME['panel'], edgecolor=badge_color, linewidth=1.3))
+
+    # 3. Medición y formateo dinámico de tarjetas
+    wrap_w = 104
+    wrapped_cards = []
+    
+    for title, body, is_hl in cards:
+        lines = []
+        for p in str(body or "").split('\n\n'):
+            if p.strip():
+                lines.extend(textwrap.fill(_esc(p.strip()), width=wrap_w).split('\n'))
+        if not lines:
+            lines = ["Sin información adicional reportada."]
+        wrapped_cards.append((title, '\n'.join(lines), len(lines), is_hl))
+
+    n = len(wrapped_cards)
+    if n == 0:
+        pdf.savefig(fig)
+        plt.close(fig)
+        return
+
+    # Área vertical disponible para las tarjetas: desde y_top hasta y_bottom
+    y_top = 0.815
+    y_bottom = 0.035
+    avail_h = y_top - y_bottom
+    gap = 0.022
+    total_gaps = gap * (n - 1)
+    usable_h = avail_h - total_gaps
+
+    weights = [max(c[2], 1) for c in wrapped_cards]
+    total_w = sum(weights)
+    card_heights = [(w / total_w) * usable_h for w in weights]
+    
+    # Asegurar altura mínima para cada tarjeta
+    min_h = 0.115
+    for i in range(n):
+        card_heights[i] = max(card_heights[i], min_h)
+    
+    # Re-normalizar para ocupar exactamente el 100% del espacio útil
+    scale_factor = usable_h / sum(card_heights)
+    card_heights = [h * scale_factor for h in card_heights]
+
+    total_lines = sum(c[2] for c in wrapped_cards)
+    if total_lines >= 26:
+        font_s = 7.4
+    elif total_lines >= 18:
+        font_s = 7.8
+    elif total_lines >= 12:
+        font_s = 8.2
+    else:
+        font_s = 8.6
+
+    curr_y = y_top
+    for idx, (c_title, c_body, n_lines, is_hl) in enumerate(wrapped_cards):
+        card_h = card_heights[idx]
+        box_y = curr_y - card_h
+
+        # Fondo y borde de tarjeta completa
+        bg_col = '#F0FDFA' if is_hl else REPORT_THEME['panel']
+        edge_col = REPORT_THEME['teal'] if is_hl else REPORT_THEME['line']
+        lw = 1.3 if is_hl else 0.8
+        
+        rect = patches.FancyBboxPatch(
+            (0.0, box_y), 1.0, card_h,
+            boxstyle='round,pad=0.0,rounding_size=0.015',
+            facecolor=bg_col, edgecolor=edge_col, linewidth=lw,
+            transform=ax.transAxes, zorder=2
+        )
+        ax.add_patch(rect)
+
+        # Título de tarjeta dentro del panel
+        title_color = '#0F766E' if is_hl else REPORT_THEME['navy']
+        ax.text(0.018, curr_y - 0.022, _esc(c_title), fontsize=font_s + 0.8, fontweight='bold',
+                color=title_color, va='top', transform=ax.transAxes, zorder=3)
+
+        # Cuerpo de texto dentro del panel
+        body_color = REPORT_THEME['navy'] if is_hl else REPORT_THEME['text']
+        body_weight = 'bold' if is_hl else 'normal'
+        ax.text(0.018, curr_y - 0.052, c_body, fontsize=font_s, fontweight=body_weight,
+                color=body_color, va='top', transform=ax.transAxes, zorder=3)
+
+        curr_y -= (card_h + gap)
+
+    pdf.savefig(fig)
+    plt.close(fig)
+
+
 def show_company_overview(pdf, overview_result: dict, ticker: str = "", market_data: dict = None):
     """
-    Renderiza la primera página del informe PDF explicando qué hace la empresa,
-    sus productos/servicios, modelo de ingresos y evaluación en el Círculo de Competencia de Warren Buffett.
+    Renderiza la primera página del informe PDF aprovechando el 100% del lienzo,
+    con tarjetas ejecutivas bien proporcionadas, explicando qué hace la empresa, sus divisiones de negocio,
+    ubicación, dinámicas sectoriales y evaluación en el Círculo de Competencia de Warren Buffett a partir del 10-K.
     """
     if not overview_result:
         return
@@ -457,26 +578,27 @@ def show_company_overview(pdf, overview_result: dict, ticker: str = "", market_d
     current_price = float(market_data.get("current_price", 0.0) or 0.0)
     market_cap = float(market_data.get("market_cap", 0) or 0)
 
-    # Si market_cap no vino en market_data pero tenemos acciones, calcularlo
     if market_cap <= 0 and current_price > 0:
         shares = float(market_data.get("shares_outstanding", 0) or 0)
         if shares > 0:
             market_cap = current_price * shares
             market_data["market_cap"] = int(market_cap)
 
-    fig = plt.figure(figsize=(9, 7), dpi=150)
+    fig = plt.figure(figsize=(9.5, 7.2), dpi=150)
     fig.patch.set_facecolor(REPORT_THEME['canvas'])
-    ax = fig.add_axes([0.05, 0.03, 0.90, 0.94])
+    ax = fig.add_axes([0.045, 0.035, 0.91, 0.93])
     ax.set_facecolor(REPORT_THEME['canvas'])
     ax.axis('off')
 
-    def _esc(t): return str(t).replace('$', r'\$')
+    def _esc(t):
+        if not t: return ""
+        return str(t).replace('$', r'\$')
 
     ticker_str = ticker or ""
     # 1. Encabezado institucional de la Empresa
-    ax.text(0.0, 0.985, f'{company_name} ({ticker_str}) - Perfil & Modelo de Negocio', fontsize=13.0, fontweight='bold', color=REPORT_THEME['navy'], va='top')
+    ax.text(0.0, 0.985, f'{company_name} ({ticker_str}) - Perfil & Modelo de Negocio (SEC Form 10-K)', fontsize=12.8, fontweight='bold', color=REPORT_THEME['navy'], va='top')
     
-    # Subtítulo con datos clave de mercado (formatear Market Cap legiblemente)
+    # Subtítulo con datos clave de mercado
     if market_cap > 0:
         mcap_formatted = formato_legible(market_cap)
         mcap_str = f"${mcap_formatted}" if not mcap_formatted.startswith("$") else mcap_formatted
@@ -494,54 +616,119 @@ def show_company_overview(pdf, overview_result: dict, ticker: str = "", market_d
     desc_corta = overview_result.get('descripcion_corta', '')
     verdict_text = f"CÍRCULO DE COMPETENCIA DE BUFFETT: {_esc(verdicto)}\n{_esc(desc_corta)}"
     
-    ax.text(0.5, 0.890, verdict_text, fontsize=9.0, fontweight='bold', ha='center', va='center', color=badge_color,
-            bbox=dict(boxstyle='round,pad=0.45', facecolor=REPORT_THEME['panel'], edgecolor=badge_color, linewidth=1.4))
+    ax.text(0.5, 0.885, verdict_text, fontsize=9.0, fontweight='bold', ha='center', va='center', color=badge_color,
+            bbox=dict(boxstyle='round,pad=0.42', facecolor=REPORT_THEME['panel'], edgecolor=badge_color, linewidth=1.3))
 
-    # Preparar las 4 tarjetas de contenido
+    # Formateo estructurado de líneas de negocio
+    lineas_raw = overview_result.get('lineas_de_negocio', [])
+    lines_formatted_list = []
+    if isinstance(lineas_raw, list) and lineas_raw:
+        for item in lineas_raw:
+            if isinstance(item, dict):
+                nom = item.get('nombre', '').strip()
+                desc = item.get('descripcion', '').strip()
+                if nom and desc:
+                    lines_formatted_list.append(f"• {nom}: {desc}")
+                elif nom or desc:
+                    lines_formatted_list.append(f"• {nom or desc}")
+            elif isinstance(item, str) and item.strip():
+                lines_formatted_list.append(f"• {item.strip()}")
+    
+    lineas_texto = "\n\n".join(lines_formatted_list) if lines_formatted_list else overview_result.get('modelo_ingresos', 'Desglose detallado disponible en informe 10-K.')
+
+    # Ubicación y actividad combinada
+    resumen_act = overview_result.get('resumen_actividad', 'Sin datos descriptivos.')
+    ubicacion_texto = overview_result.get('ubicacion_y_mercados', overview_result.get('mercado_y_clientes', ''))
+    if ubicacion_texto:
+        card1_body = f"{resumen_act}\n\n• Sede y Alcance Geográfico: {ubicacion_texto}"
+    else:
+        card1_body = resumen_act
+
+    # Vientos de cola y perspectivas
+    tailwinds_texto = overview_result.get('vientos_de_cola_y_sector', 'Impulsores de demanda según dinámica sectorial.')
+    crecimiento_texto = overview_result.get('perspectivas_crecimiento', 'Análisis de evolución operativa y expansión de cuota.')
+    card3_body = f"• Vientos de Cola del Sector (Tailwinds): {tailwinds_texto}\n\n• Perspectivas de Crecimiento / Riesgos: {crecimiento_texto}"
+
+    # Propuesta de valor y dictamen de Buffett
+    propuesta_val = overview_result.get('propuesta_valor', '')
+    circulo_val = overview_result.get('circulo_competencia', '')
+    card4_body = f"• Propuesta de Valor Diferencial: {propuesta_val}\n\n• Dictamen de Warren Buffett: {circulo_val}"
+
+    # 4 Tarjetas que cubren el 100% del lienzo vertical
     cards = [
         (
-            '1. ¿Qué hace la empresa y cuáles son sus principales productos o servicios?:',
-            overview_result.get('resumen_actividad', 'Sin datos descriptivos.')
+            '1. Actividad de la Empresa y a qué se dedica en la economía real (SEC Form 10-K):',
+            card1_body,
+            False
         ),
         (
-            '2. ¿Cómo gana dinero? (Modelo de Ingresos y Fuentes de Monetización):',
-            overview_result.get('modelo_ingresos', 'Sin detalles de ingresos.')
+            '2. Líneas de Negocio y Segmentos Operativos Detallados:',
+            lineas_texto,
+            False
         ),
         (
-            '3. Clientes, Mercado Objetivo y Propuesta de Valor Diferencial:',
-            f"• Clientes y Alcance: {overview_result.get('mercado_y_clientes', '')}\n\n• Propuesta de Valor: {overview_result.get('propuesta_valor', '')}"
+            '3. Vientos de Cola del Sector y Perspectivas de Crecimiento / Decrecimiento:',
+            card3_body,
+            False
         ),
         (
-            '4. Dictamen de Warren Buffett sobre el Entendimiento del Negocio:',
-            overview_result.get('circulo_competencia', '')
+            '4. Propuesta de Valor Diferencial y Dictamen de Warren Buffett:',
+            card4_body,
+            True
         )
     ]
 
-    # Distribución vertical dinámica con cálculo exacto de altura de caja
-    curr_y = 0.825
-    wrap_w = 98
-    font_s = 8.0
+    wrap_w = 104
+    wrapped_cards = []
+    for title, body, is_hl in cards:
+        lines = []
+        for p in str(body or "").split('\n\n'):
+            if p.strip():
+                lines.extend(textwrap.fill(_esc(p.strip()), width=wrap_w).split('\n'))
+        if not lines:
+            lines = ["Sin información adicional reportada."]
+        wrapped_cards.append((title, '\n'.join(lines), len(lines), is_hl))
 
-    for idx, (title, raw_body) in enumerate(cards):
-        # Título de la sección
-        ax.text(0.0, curr_y, title, fontsize=9.0, fontweight='bold', color=REPORT_THEME['navy'], va='top')
-        curr_y -= 0.026
+    n = len(wrapped_cards)
+    y_top = 0.815
+    y_bottom = 0.035
+    avail_h = y_top - y_bottom
+    gap = 0.022
+    usable_h = avail_h - gap * (n - 1)
 
-        body_wrapped = textwrap.fill(_esc(raw_body), width=wrap_w)
-        num_lines = len(body_wrapped.split('\n'))
-        
-        box_style = 'round,pad=0.40' if idx == 3 else 'square,pad=0.35'
-        box_edge = REPORT_THEME['teal'] if idx == 3 else REPORT_THEME['line']
-        box_font = 8.2 if idx == 3 else font_s
-        box_weight = 'bold' if idx == 3 else 'normal'
-        box_color = REPORT_THEME['navy'] if idx == 3 else REPORT_THEME['text']
+    weights = [max(c[2], 1) for c in wrapped_cards]
+    total_w = sum(weights)
+    card_heights = [(w / total_w) * usable_h for w in weights]
+    for i in range(n):
+        card_heights[i] = max(card_heights[i], 0.115)
+    scale_factor = usable_h / sum(card_heights)
+    card_heights = [h * scale_factor for h in card_heights]
 
-        ax.text(0.0, curr_y, body_wrapped, fontsize=box_font, fontweight=box_weight, color=box_color, va='top',
-                bbox=dict(boxstyle=box_style, facecolor=REPORT_THEME['panel'], edgecolor=box_edge, linewidth=1.1 if idx==3 else 0.8))
+    total_lines = sum(c[2] for c in wrapped_cards)
+    font_s = 7.5 if total_lines >= 26 else (7.9 if total_lines >= 18 else 8.3)
 
-        # Altura real de la caja con padding de matplotlib
-        box_height = num_lines * 0.0215 + 0.028
-        curr_y -= (box_height + 0.022)
+    curr_y = y_top
+    for idx, (title, body, n_lines, is_hl) in enumerate(wrapped_cards):
+        h = card_heights[idx]
+        box_y = curr_y - h
+
+        bg_col = '#F0FDFA' if is_hl else REPORT_THEME['panel']
+        edge_col = REPORT_THEME['teal'] if is_hl else REPORT_THEME['line']
+        rect = patches.FancyBboxPatch(
+            (0.0, box_y), 1.0, h,
+            boxstyle='round,pad=0.0,rounding_size=0.015',
+            facecolor=bg_col, edgecolor=edge_col, linewidth=1.3 if is_hl else 0.8,
+            transform=ax.transAxes, zorder=2
+        )
+        ax.add_patch(rect)
+
+        title_col = '#0F766E' if is_hl else REPORT_THEME['navy']
+        ax.text(0.018, curr_y - 0.022, _esc(title), fontsize=font_s + 0.8, fontweight='bold', color=title_col, va='top', transform=ax.transAxes, zorder=3)
+
+        body_col = REPORT_THEME['navy'] if is_hl else REPORT_THEME['text']
+        ax.text(0.018, curr_y - 0.052, body, fontsize=font_s, fontweight='bold' if is_hl else 'normal', color=body_col, va='top', transform=ax.transAxes, zorder=3)
+
+        curr_y -= (h + gap)
 
     pdf.savefig(fig)
     plt.close(fig)
@@ -549,8 +736,9 @@ def show_company_overview(pdf, overview_result: dict, ticker: str = "", market_d
 
 def show_revenue_segments_table(pdf, segments_result: dict, ticker: str = "", market_data: dict = None):
     """
-    Renderiza la Página 2 del documento PDF: Tabla histórica de fuentes de ingresos por años,
-    pesos porcentuales, crecimiento interanual y análisis de diversificación.
+    Renderiza la Página 2 del documento PDF: Tabla histórica de fuentes de ingresos por años (hasta 5 años),
+    pesos porcentuales, crecimiento interanual, descripción de líneas de negocio y análisis de diversificación.
+    Aprovecha el 100% del lienzo con paneles amplios y sin huecos en blanco.
     """
     if not segments_result:
         return
@@ -558,19 +746,19 @@ def show_revenue_segments_table(pdf, segments_result: dict, ticker: str = "", ma
     market_data = market_data or {}
     company_name = market_data.get("company_name", ticker)
 
-    fig = plt.figure(figsize=(9, 7), dpi=150)
+    fig = plt.figure(figsize=(9.5, 7.2), dpi=150)
     fig.patch.set_facecolor(REPORT_THEME['canvas'])
-    ax = fig.add_axes([0.05, 0.03, 0.90, 0.94])
+    ax = fig.add_axes([0.045, 0.035, 0.91, 0.93])
     ax.set_facecolor(REPORT_THEME['canvas'])
     ax.axis('off')
 
-    def _esc(t): return str(t).replace('$', r'\$')
+    def _esc(t): return str(t or "").replace('$', r'\$')
 
     ticker_str = ticker or ""
     # 1. Encabezado institucional
     ax.text(0.0, 0.985, f'{company_name} ({ticker_str}) - Desglose de Fuentes de Ingresos', fontsize=13.0, fontweight='bold', color=REPORT_THEME['navy'], va='top')
     unit_str = segments_result.get("unidad_monetaria", "Billion USD")
-    ax.text(0.0, 0.950, f'Evolución histórica por líneas de negocio ({unit_str}) y grado de diversificación', fontsize=8.6, style='italic', color=REPORT_THEME['muted'], va='top')
+    ax.text(0.0, 0.950, f'Evolución histórica por líneas de negocio ({unit_str}) y grado de diversificación (SEC Form 10-K)', fontsize=8.6, style='italic', color=REPORT_THEME['muted'], va='top')
 
     # 2. Construir datos de la tabla
     years = segments_result.get("years", segments_result.get("años", []))
@@ -583,11 +771,20 @@ def show_revenue_segments_table(pdf, segments_result: dict, ticker: str = "", ma
     totales_por_ano = [0.0] * len(years)
 
     for seg_name, vals in historico.items():
-        row = [textwrap.fill(seg_name, width=26)]
-        for idx, v in enumerate(vals):
-            row.append(f"{v:.1f}" if isinstance(v, (int, float)) else str(v))
-            if idx < len(totales_por_ano) and isinstance(v, (int, float)):
-                totales_por_ano[idx] += v
+        row = [textwrap.fill(seg_name, width=32)]
+        for idx in range(len(years)):
+            v = vals[idx] if (isinstance(vals, list) and idx < len(vals)) else None
+            if v is None or v == "-" or v == "N/A":
+                row.append("-")
+            elif isinstance(v, (int, float)):
+                if v == 0.0 and idx < len(years) - 2:
+                    row.append("-")
+                else:
+                    row.append(f"{v:.1f}")
+                    if idx < len(totales_por_ano):
+                        totales_por_ano[idx] += float(v)
+            else:
+                row.append(str(v))
         
         meta = seg_meta.get(seg_name, {})
         pct_val = meta.get("porcentaje_ultimo_ano")
@@ -595,20 +792,25 @@ def show_revenue_segments_table(pdf, segments_result: dict, ticker: str = "", ma
         row.append(pct_str)
 
         yoy_val = meta.get("crecimiento_yoy_pct")
-        yoy_str = f"{yoy_val:+.1f}%" if yoy_val is not None else "N/A"
+        if yoy_val is not None and isinstance(yoy_val, (int, float)):
+            yoy_str = f"{yoy_val:+.1f}%"
+        else:
+            yoy_str = str(yoy_val or "N/A")
         row.append(yoy_str)
         table_data.append(row)
 
     if any(totales_por_ano):
-        total_row = ["TOTAL INGRESOS"] + [f"{t:.1f}" for t in totales_por_ano] + ["100.0%", ""]
+        total_row = ["TOTAL CONSOLIDADO"] + [f"{t:.1f}" if t > 0 else "-" for t in totales_por_ano] + ["100.0%", ""]
         table_data.append(total_row)
 
     n_cols = len(col_labels)
-    w_first = 0.38
+    w_first = 0.36 if len(years) >= 5 else 0.40
     w_other = (1.0 - w_first) / max(n_cols - 1, 1)
     col_widths = [w_first] + [w_other] * (n_cols - 1)
 
-    table_h = min(0.32, 0.040 * (len(table_data) + 1))
+    num_rows = len(table_data) + 1
+    row_h = 0.038
+    table_h = min(0.32, num_rows * row_h)
     table_y = 0.920 - table_h
 
     table = ax.table(
@@ -620,39 +822,58 @@ def show_revenue_segments_table(pdf, segments_result: dict, ticker: str = "", ma
         cellLoc='center'
     )
     table.auto_set_font_size(False)
-    table.set_fontsize(8.4)
-    estilizar_tabla(table)
+    estilizar_tabla(table, header_fontsize=8.6 if len(years) >= 5 else 9.0, cell_fontsize=8.0 if len(years) >= 5 else 8.4, pad=0.05)
 
-    # 3. Card 1: Descripción de cada línea de negocio con viñetas estructuradas
-    curr_y = table_y - 0.040
-    ax.text(0.0, curr_y, '1. Descripción de las Líneas de Negocio y Segmentos:', fontsize=9.0, fontweight='bold', color=REPORT_THEME['navy'], va='top')
-    curr_y -= 0.026
-
+    # 3. Formatear y medir Cards inferiores ocupando el 100% del espacio restante
     desc_lines = []
     for s in segments_result.get("segmentos", []):
         s_name = s.get("nombre", "")
         s_desc = s.get("descripcion", "")
-        formatted_bullet = textwrap.fill(f"• {s_name}: {s_desc}", width=96, subsequent_indent="  ")
+        formatted_bullet = textwrap.fill(f"• {s_name}: {s_desc}", width=104, subsequent_indent="  ")
         desc_lines.append(formatted_bullet)
     
     desc_full_text = "\n".join(desc_lines)
-    num_lines_desc = len(desc_full_text.split('\n'))
-    h_desc_box = num_lines_desc * 0.0205 + 0.026
-
-    ax.text(0.0, curr_y, _esc(desc_full_text), fontsize=7.8, color=REPORT_THEME['text'], va='top',
-            bbox=dict(boxstyle='square,pad=0.38', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['line'], linewidth=0.8))
-    
-    curr_y -= (h_desc_box + 0.035)
-
-    # 4. Card 2: Análisis de Diversificación y Riesgo de Concentración
-    ax.text(0.0, curr_y, '2. Análisis de Diversificación y Riesgo de Concentración de Ingresos:', fontsize=9.0, fontweight='bold', color=REPORT_THEME['navy'], va='top')
-    curr_y -= 0.026
-    
     analisis_div = segments_result.get("analisis_diversificacion", "La empresa cuenta con un modelo diversificado de ingresos.")
-    div_wrapped = textwrap.fill(_esc(analisis_div), width=96)
-    
-    ax.text(0.0, curr_y, div_wrapped, fontsize=8.2, fontweight='bold', color=REPORT_THEME['navy'], va='top',
-            bbox=dict(boxstyle='round,pad=0.40', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['teal'], linewidth=1.2))
+    div_wrapped = textwrap.fill(_esc(analisis_div), width=104)
+
+    avail_y_top = table_y - 0.030
+    y_bottom = 0.035
+    usable_h = avail_y_top - y_bottom
+    gap = 0.022
+    cards_usable_h = usable_h - gap
+
+    # Proporción: 58% Descripción, 42% Análisis de Diversificación
+    card1_h = cards_usable_h * 0.58
+    card2_h = cards_usable_h * 0.42
+
+    # Panel Card 1: Descripción
+    box1_y = avail_y_top - card1_h
+    rect1 = patches.FancyBboxPatch(
+        (0.0, box1_y), 1.0, card1_h,
+        boxstyle='round,pad=0.0,rounding_size=0.015',
+        facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['line'], linewidth=0.8,
+        transform=ax.transAxes, zorder=2
+    )
+    ax.add_patch(rect1)
+    ax.text(0.018, avail_y_top - 0.022, '1. Descripción de las Líneas de Negocio y Segmentos:',
+            fontsize=8.8, fontweight='bold', color=REPORT_THEME['navy'], va='top', transform=ax.transAxes, zorder=3)
+    ax.text(0.018, avail_y_top - 0.052, _esc(desc_full_text),
+            fontsize=7.9, color=REPORT_THEME['text'], va='top', transform=ax.transAxes, zorder=3)
+
+    # Panel Card 2: Diversificación
+    curr_y_2 = box1_y - gap
+    box2_y = curr_y_2 - card2_h
+    rect2 = patches.FancyBboxPatch(
+        (0.0, box2_y), 1.0, card2_h,
+        boxstyle='round,pad=0.0,rounding_size=0.015',
+        facecolor='#F0FDFA', edgecolor=REPORT_THEME['teal'], linewidth=1.3,
+        transform=ax.transAxes, zorder=2
+    )
+    ax.add_patch(rect2)
+    ax.text(0.018, curr_y_2 - 0.022, '2. Análisis de Diversificación y Riesgo de Concentración de Ingresos:',
+            fontsize=8.8, fontweight='bold', color='#0F766E', va='top', transform=ax.transAxes, zorder=3)
+    ax.text(0.018, curr_y_2 - 0.052, div_wrapped,
+            fontsize=8.2, fontweight='bold', color=REPORT_THEME['navy'], va='top', transform=ax.transAxes, zorder=3)
 
     pdf.savefig(fig)
     plt.close(fig)
@@ -692,61 +913,36 @@ def show_monopoly_analysis(pdf, analysis_result: dict, ticker: str = ""):
     if not analysis_result:
         return
 
-    fig = plt.figure(figsize=(9, 7), dpi=150)
-    fig.patch.set_facecolor(REPORT_THEME['canvas'])
-    ax = fig.add_axes([0.05, 0.04, 0.90, 0.92])
-    ax.set_facecolor(REPORT_THEME['canvas'])
-    ax.axis('off')
-
-    def _esc(t): return str(t).replace('$', r'\$')
-
     ticker_str = ticker or ""
-    # 1. Encabezado institucional
-    ax.text(0.0, 0.98, f'Evaluación de Monopolio de Buffettology ({ticker_str})', fontsize=13.5, fontweight='bold', color=REPORT_THEME['navy'], va='top')
-    ax.text(0.0, 0.93, 'Pregunta 1 de Warren Buffett: ¿Tiene la empresa un monopolio fácilmente identificable?', fontsize=9.5, style='italic', color=REPORT_THEME['muted'], va='top')
-
-    # 2. Veredicto destacado
     categoria = analysis_result.get('categoria', 'MODERADO')
     badge_color = REPORT_THEME['positive'] if categoria == 'FUERTE' else (REPORT_THEME['negative'] if categoria == 'COMMODITY' else REPORT_THEME['gold'])
     verdicto_corto = analysis_result.get('veredicto_corto', 'Evaluación de Monopolio')
     tipo_foso = analysis_result.get('tipo_foso', 'Ventaja Competitiva')
-    verdict_text = f"VEREDICTO: {_esc(verdicto_corto)}\nTipo de Foso: {_esc(tipo_foso)}"
-    
-    ax.text(0.5, 0.83, verdict_text, fontsize=10.5, fontweight='bold', ha='center', va='center', color=badge_color,
-            bbox=dict(boxstyle='round,pad=0.6', facecolor=REPORT_THEME['panel'], edgecolor=badge_color, linewidth=1.5))
+    verdict_text = f"VEREDICTO: {verdicto_corto}\nTipo de Foso: {tipo_foso}"
 
-    # 3. Card 1: Análisis SEC 10-K
-    ax.text(0.0, 0.74, '1. Análisis del Modelo de Negocio e Informes 10-K (SEC):', fontsize=10, fontweight='bold', color=REPORT_THEME['navy'], va='top')
     sec_desc = analysis_result.get('analisis_sec', 'Sin datos descriptivos.')
-    sec_wrapped = textwrap.fill(_esc(sec_desc), width=96)
-    ax.text(0.0, 0.70, sec_wrapped, fontsize=8.8, color=REPORT_THEME['text'], va='top',
-            bbox=dict(boxstyle='square,pad=0.5', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['line'], linewidth=0.8))
-
-    # 4. Card 2: Pricing Power & Pilares Cuantitativos
-    ax.text(0.0, 0.53, '2. Poder de Fijación de Precios & Evidencia Cuantitativa (10 Años):', fontsize=10, fontweight='bold', color=REPORT_THEME['navy'], va='top')
     pricing_power = analysis_result.get('poder_fijacion_precios', '')
     pilares = analysis_result.get('pilares_cuantitativos', '')
-    quant_text = f"• Fijación de Precios: {_esc(pricing_power)}\n• Métricas Contables: {_esc(pilares)}"
-    quant_wrapped = textwrap.fill(quant_text, width=96)
-    ax.text(0.0, 0.49, quant_wrapped, fontsize=8.8, color=REPORT_THEME['text'], va='top',
-            bbox=dict(boxstyle='square,pad=0.5', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['line'], linewidth=0.8))
-
-    # 5. Card 3: Amenazas al Foso
-    ax.text(0.0, 0.32, '3. Amenazas al Foso Defensivo & Riesgos Regulatorios:', fontsize=10, fontweight='bold', color=REPORT_THEME['navy'], va='top')
+    quant_text = f"• Fijación de Precios: {pricing_power}\n• Métricas Contables: {pilares}"
     threats = analysis_result.get('amenazas_foso', 'Sin amenazas críticas reportadas.')
-    threats_wrapped = textwrap.fill(_esc(threats), width=96)
-    ax.text(0.0, 0.28, threats_wrapped, fontsize=8.8, color=REPORT_THEME['text'], va='top',
-            bbox=dict(boxstyle='square,pad=0.5', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['line'], linewidth=0.8))
-
-    # 6. Card 4: Conclusión Final de Warren Buffett
-    ax.text(0.0, 0.17, '4. Conclusión Final de Warren Buffett:', fontsize=10, fontweight='bold', color=REPORT_THEME['navy'], va='top')
     conclusion = analysis_result.get('conclusion_buffett', '')
-    conc_wrapped = textwrap.fill(_esc(conclusion), width=96)
-    ax.text(0.0, 0.13, conc_wrapped, fontsize=9.2, fontweight='bold', color=REPORT_THEME['navy'], va='top',
-            bbox=dict(boxstyle='round,pad=0.6', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['teal'], linewidth=1.2))
 
-    pdf.savefig(fig)
-    plt.close(fig)
+    cards = [
+        ('1. Análisis del Modelo de Negocio e Informes 10-K (SEC):', sec_desc, False),
+        ('2. Poder de Fijación de Precios & Evidencia Cuantitativa (10 Años):', quant_text, False),
+        ('3. Amenazas al Foso Defensivo & Riesgos Regulatorios:', threats, False),
+        ('4. Conclusión Final de Warren Buffett:', conclusion, True)
+    ]
+
+    _render_dynamic_executive_cards_page(
+        pdf=pdf,
+        main_title=f'Evaluación de Monopolio de Buffettology ({ticker_str})',
+        subtitle='Pregunta 1 de Warren Buffett: ¿Tiene la empresa un monopolio fácilmente identificable?',
+        verdict_text=verdict_text,
+        badge_color=badge_color,
+        cards=cards,
+        ticker=ticker
+    )
 
 
 def show_retained_earnings_analysis(pdf, analysis_result: dict, ticker: str = ""):
@@ -756,192 +952,114 @@ def show_retained_earnings_analysis(pdf, analysis_result: dict, ticker: str = ""
     if not analysis_result:
         return
 
-    fig = plt.figure(figsize=(9, 7), dpi=150)
-    fig.patch.set_facecolor(REPORT_THEME['canvas'])
-    ax = fig.add_axes([0.05, 0.04, 0.90, 0.92])
-    ax.set_facecolor(REPORT_THEME['canvas'])
-    ax.axis('off')
-
-    def _esc(t): return str(t).replace('$', r'\$')
-
     ticker_str = ticker or ""
-    # 1. Encabezado institucional
-    ax.text(0.0, 0.98, f'Evaluación de Beneficios No Distribuidos ({ticker_str})', fontsize=13.5, fontweight='bold', color=REPORT_THEME['navy'], va='top')
-    ax.text(0.0, 0.93, 'Pregunta de Warren Buffett: ¿Incrementará el valor añadido de los beneficios no distribuidos el valor de mercado?', fontsize=9.2, style='italic', color=REPORT_THEME['muted'], va='top')
-
-    # 2. Veredicto destacado
     categoria = analysis_result.get('categoria', 'MODERADO')
     badge_color = REPORT_THEME['positive'] if categoria == 'EXCELENTE' else (REPORT_THEME['negative'] if categoria == 'DEFICIENTE' else REPORT_THEME['gold'])
     verdicto_corto = analysis_result.get('veredicto_corto', 'Evaluación de Asignación de Capital')
     eficiencia = analysis_result.get('eficiencia_capital', 'Asignación de Capital')
-    verdict_text = f"VEREDICTO: {_esc(verdicto_corto)}\nEficiencia: {_esc(eficiencia)}"
-    
-    ax.text(0.5, 0.83, verdict_text, fontsize=10.5, fontweight='bold', ha='center', va='center', color=badge_color,
-            bbox=dict(boxstyle='round,pad=0.6', facecolor=REPORT_THEME['panel'], edgecolor=badge_color, linewidth=1.5))
+    verdict_text = f"VEREDICTO: {verdicto_corto}\nEficiencia: {eficiencia}"
 
-    # 3. Card 1: Estrategia de Reinversión SEC 10-K
-    ax.text(0.0, 0.74, '1. Estrategia de Reinversión según Informes 10-K (SEC):', fontsize=10, fontweight='bold', color=REPORT_THEME['navy'], va='top')
     sec_desc = analysis_result.get('analisis_sec_reinversion', 'Sin datos descriptivos.')
-    sec_wrapped = textwrap.fill(_esc(sec_desc), width=96)
-    ax.text(0.0, 0.70, sec_wrapped, fontsize=8.8, color=REPORT_THEME['text'], va='top',
-            bbox=dict(boxstyle='square,pad=0.5', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['line'], linewidth=0.8))
-
-    # 4. Card 2: Test del Dólar Retenido & Evolución del BPA
-    ax.text(0.0, 0.53, '2. Test del Dólar Retenido & Evolución del BPA (10 Años):', fontsize=10, fontweight='bold', color=REPORT_THEME['navy'], va='top')
     metrica = analysis_result.get('metrica_dolar_retenido', '')
-    metrica_wrapped = textwrap.fill(_esc(metrica), width=96)
-    ax.text(0.0, 0.49, metrica_wrapped, fontsize=8.8, color=REPORT_THEME['text'], va='top',
-            bbox=dict(boxstyle='square,pad=0.5', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['line'], linewidth=0.8))
-
-    # 5. Card 3: Política de Retorno al Accionista (Recompras & Dividendos)
-    ax.text(0.0, 0.34, '3. Política de Retorno al Accionista (Recompras & Dividendos):', fontsize=10, fontweight='bold', color=REPORT_THEME['navy'], va='top')
     politica = analysis_result.get('politica_retorno_accionista', 'Sin política específica reportada.')
-    pol_wrapped = textwrap.fill(_esc(politica), width=96)
-    ax.text(0.0, 0.30, pol_wrapped, fontsize=8.8, color=REPORT_THEME['text'], va='top',
-            bbox=dict(boxstyle='square,pad=0.5', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['line'], linewidth=0.8))
-
-    # 6. Card 4: Dictamen Final de Warren Buffett
-    ax.text(0.0, 0.17, '4. Dictamen Final de Warren Buffett sobre Asignación de Capital:', fontsize=10, fontweight='bold', color=REPORT_THEME['navy'], va='top')
     conclusion = analysis_result.get('conclusion_buffett', '')
-    conc_wrapped = textwrap.fill(_esc(conclusion), width=96)
-    ax.text(0.0, 0.13, conc_wrapped, fontsize=9.2, fontweight='bold', color=REPORT_THEME['navy'], va='top',
-            bbox=dict(boxstyle='round,pad=0.6', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['teal'], linewidth=1.2))
 
-    pdf.savefig(fig)
-    plt.close(fig)
+    cards = [
+        ('1. Estrategia de Reinversión según Informes 10-K (SEC):', sec_desc, False),
+        ('2. Test del Dólar Retenido & Evolución del BPA (10 Años):', metrica, False),
+        ('3. Política de Retorno al Accionista (Recompras & Dividendos):', politica, False),
+        ('4. Dictamen Final de Warren Buffett sobre Asignación de Capital:', conclusion, True)
+    ]
+
+    _render_dynamic_executive_cards_page(
+        pdf=pdf,
+        main_title=f'Evaluación de Beneficios No Distribuidos ({ticker_str})',
+        subtitle='Pregunta de Warren Buffett: ¿Incrementará el valor añadido de los beneficios no distribuidos el valor de mercado?',
+        verdict_text=verdict_text,
+        badge_color=badge_color,
+        cards=cards,
+        ticker=ticker
+    )
 
 
 def show_management_alignment_analysis(pdf, analysis_result: dict, ticker: str = ""):
     """
     Renderiza la página ejecutiva final de evaluación de alineación de directivos con los accionistas según Warren Buffett.
-    Diseñado con explicaciones claras, sencillas y pedagógicas para cualquier nivel de conocimiento financiero.
     """
     if not analysis_result:
         return
 
-    fig = plt.figure(figsize=(9, 7), dpi=150)
-    fig.patch.set_facecolor(REPORT_THEME['canvas'])
-    ax = fig.add_axes([0.05, 0.03, 0.90, 0.94])
-    ax.set_facecolor(REPORT_THEME['canvas'])
-    ax.axis('off')
-
-    def _esc(t): return str(t).replace('$', r'\$')
-
     ticker_str = ticker or ""
-    # 1. Encabezado institucional
-    ax.text(0.0, 0.98, f'Evaluación de Alineación Directiva con los Accionistas ({ticker_str})', fontsize=13.0, fontweight='bold', color=REPORT_THEME['navy'], va='top')
-    ax.text(0.0, 0.94, 'Pregunta de Warren Buffett: ¿Cómo es la alineación de los directivos con los intereses de los accionistas?', fontsize=9.0, style='italic', color=REPORT_THEME['muted'], va='top')
-
-    # 2. Veredicto destacado
     categoria = analysis_result.get('categoria', 'MODERADA')
     badge_color = REPORT_THEME['positive'] if categoria == 'EXCELENTE' else (REPORT_THEME['teal'] if categoria == 'BUENA' else (REPORT_THEME['negative'] if categoria == 'DEFICIENTE' else REPORT_THEME['gold']))
     verdicto_corto = analysis_result.get('veredicto_corto', 'Evaluación de Alineación')
     nivel_alineacion = analysis_result.get('nivel_alineacion', 'Alineación de Intereses')
-    verdict_text = f"VEREDICTO: {_esc(verdicto_corto)}\nNivel: {_esc(nivel_alineacion)}"
-    
-    ax.text(0.5, 0.85, verdict_text, fontsize=10.0, fontweight='bold', ha='center', va='center', color=badge_color,
-            bbox=dict(boxstyle='round,pad=0.5', facecolor=REPORT_THEME['panel'], edgecolor=badge_color, linewidth=1.5))
+    verdict_text = f"VEREDICTO: {verdicto_corto}\nNivel: {nivel_alineacion}"
 
-    # 3. Card 1: Explicación sencilla y pedagógica
-    ax.text(0.0, 0.77, '1. En palabras sencillas (Explicación para todos los públicos):', fontsize=9.8, fontweight='bold', color=REPORT_THEME['navy'], va='top')
     analogia = analysis_result.get('analogia_sencilla', '')
     explicacion = analysis_result.get('explicacion_facil', '')
     card1_text = f"• Analogía: {analogia}\n\n• ¿Cómo cuidan tu dinero?: {explicacion}"
-    card1_wrapped = textwrap.fill(_esc(card1_text), width=96)
-    ax.text(0.0, 0.73, card1_wrapped, fontsize=8.6, color=REPORT_THEME['text'], va='top',
-            bbox=dict(boxstyle='square,pad=0.45', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['line'], linewidth=0.8))
-
-    # 4. Card 2: Evidencia SEC 10-K & DEF 14A
-    ax.text(0.0, 0.54, '2. Evidencia en los Informes de la SEC (Recompras y Piel en el Juego):', fontsize=9.8, fontweight='bold', color=REPORT_THEME['navy'], va='top')
     sec_evidencia = analysis_result.get('evidencia_sec_remuneracion', '')
-    sec_wrapped = textwrap.fill(_esc(sec_evidencia), width=96)
-    ax.text(0.0, 0.50, sec_wrapped, fontsize=8.6, color=REPORT_THEME['text'], va='top',
-            bbox=dict(boxstyle='square,pad=0.45', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['line'], linewidth=0.8))
-
-    # 5. Card 3: Puntos a favor y alertas
-    ax.text(0.0, 0.36, '3. Puntos Clave a Favor y Alertas para el Inversor:', fontsize=9.8, fontweight='bold', color=REPORT_THEME['navy'], va='top')
     positivos = analysis_result.get('puntos_positivos', '')
     alertas = analysis_result.get('alertas_accionista', '')
     puntos_text = f"Puntos a favor:\n{positivos}\n\nAlertas a vigilar:\n{alertas}"
-    puntos_wrapped = textwrap.fill(_esc(puntos_text), width=96)
-    ax.text(0.0, 0.32, puntos_wrapped, fontsize=8.4, color=REPORT_THEME['text'], va='top',
-            bbox=dict(boxstyle='square,pad=0.45', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['line'], linewidth=0.8))
-
-    # 6. Card 4: Conclusión Final de Warren Buffett
-    ax.text(0.0, 0.15, '4. Dictamen Final de Warren Buffett sobre el Equipo Directivo:', fontsize=9.8, fontweight='bold', color=REPORT_THEME['navy'], va='top')
     conclusion = analysis_result.get('conclusion_buffett', '')
-    conc_wrapped = textwrap.fill(_esc(conclusion), width=96)
-    ax.text(0.0, 0.11, conc_wrapped, fontsize=8.8, fontweight='bold', color=REPORT_THEME['navy'], va='top',
-            bbox=dict(boxstyle='round,pad=0.5', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['teal'], linewidth=1.2))
 
-    pdf.savefig(fig)
-    plt.close(fig)
+    cards = [
+        ('1. En palabras sencillas (Explicación para todos los públicos):', card1_text, False),
+        ('2. Evidencia en los Informes de la SEC (Recompras y Piel en el Juego):', sec_evidencia, False),
+        ('3. Puntos Clave a Favor y Alertas para el Inversor:', puntos_text, False),
+        ('4. Dictamen Final de Warren Buffett sobre el Equipo Directivo:', conclusion, True)
+    ]
+
+    _render_dynamic_executive_cards_page(
+        pdf=pdf,
+        main_title=f'Evaluación de Alineación Directiva con los Accionistas ({ticker_str})',
+        subtitle='Pregunta de Warren Buffett: ¿Cómo es la alineación de los directivos con los intereses de los accionistas?',
+        verdict_text=verdict_text,
+        badge_color=badge_color,
+        cards=cards,
+        ticker=ticker
+    )
 
 
 def show_accounting_forensic_analysis(pdf, analysis_result: dict, ticker: str = ""):
     """
     Renderiza la página ejecutiva de auditoría forense y calidad contable según Warren Buffett.
-    Analiza si hay indicios de contabilidad engañosa, discordancias entre caja y beneficios, o anomalías en 10-K.
     """
     if not analysis_result:
         return
 
-    fig = plt.figure(figsize=(9, 7), dpi=150)
-    fig.patch.set_facecolor(REPORT_THEME['canvas'])
-    ax = fig.add_axes([0.05, 0.03, 0.90, 0.94])
-    ax.set_facecolor(REPORT_THEME['canvas'])
-    ax.axis('off')
-
-    def _esc(t): return str(t).replace('$', r'\$')
-
     ticker_str = ticker or ""
-    # 1. Encabezado institucional
-    ax.text(0.0, 0.98, f'Auditoría Forense y Calidad Contable ({ticker_str})', fontsize=13.0, fontweight='bold', color=REPORT_THEME['navy'], va='top')
-    ax.text(0.0, 0.94, 'Pregunta de Warren Buffett: ¿Hay indicios de contabilidad engañosa o datos que no cuadren?', fontsize=9.0, style='italic', color=REPORT_THEME['muted'], va='top')
-
-    # 2. Veredicto destacado
     categoria = analysis_result.get('categoria', 'LIMPIA')
     badge_color = REPORT_THEME['positive'] if categoria == 'LIMPIA' else (REPORT_THEME['negative'] if categoria == 'CRITICA' else REPORT_THEME['gold'])
     verdicto_corto = analysis_result.get('veredicto_corto', 'Auditoría Forense')
     calidad = analysis_result.get('calidad_beneficios', 'Calidad Contable')
-    verdict_text = f"VEREDICTO: {_esc(verdicto_corto)}\nCalidad de Beneficios: {_esc(calidad)}"
-    
-    ax.text(0.5, 0.85, verdict_text, fontsize=10.0, fontweight='bold', ha='center', va='center', color=badge_color,
-            bbox=dict(boxstyle='round,pad=0.5', facecolor=REPORT_THEME['panel'], edgecolor=badge_color, linewidth=1.5))
+    verdict_text = f"VEREDICTO: {verdicto_corto}\nCalidad de Beneficios: {calidad}"
 
-    # 3. Card 1: Coherencia Caja vs Beneficio Neto
-    ax.text(0.0, 0.77, '1. Calidad de los Beneficios (Caja Real vs Beneficio Contable):', fontsize=9.8, fontweight='bold', color=REPORT_THEME['navy'], va='top')
     caja_desc = analysis_result.get('coherencia_caja_vs_beneficio', '')
-    caja_wrapped = textwrap.fill(_esc(caja_desc), width=96)
-    ax.text(0.0, 0.73, caja_wrapped, fontsize=8.6, color=REPORT_THEME['text'], va='top',
-            bbox=dict(boxstyle='square,pad=0.45', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['line'], linewidth=0.8))
-
-    # 4. Card 2: Análisis de Cobros e Inventarios
-    ax.text(0.0, 0.55, '2. Análisis de Cuentas por Cobrar, Inventarios y Capital Circulante:', fontsize=9.8, fontweight='bold', color=REPORT_THEME['navy'], va='top')
     cobros_desc = analysis_result.get('analisis_cobros_inventarios', '')
-    cobros_wrapped = textwrap.fill(_esc(cobros_desc), width=96)
-    ax.text(0.0, 0.51, cobros_wrapped, fontsize=8.6, color=REPORT_THEME['text'], va='top',
-            bbox=dict(boxstyle='square,pad=0.45', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['line'], linewidth=0.8))
-
-    # 5. Card 3: Ajustes No-GAAP, Notas 10-K y Señales de Alerta
-    ax.text(0.0, 0.38, '3. Ajustes No-GAAP, Notas a los Informes 10-K y Señales de Alerta:', fontsize=9.8, fontweight='bold', color=REPORT_THEME['navy'], va='top')
     ajustes_desc = analysis_result.get('analisis_ajustes_y_notas', '')
     señales = analysis_result.get('señales_alerta', '')
-    ajustes_w = textwrap.fill(_esc(ajustes_desc), width=96)
-    señales_w = textwrap.fill(_esc(señales), width=96)
-    card3_wrapped = f"{ajustes_w}\n\nDiagnóstico de Alertas:\n{señales_w}"
-    ax.text(0.0, 0.34, card3_wrapped, fontsize=8.4, color=REPORT_THEME['text'], va='top',
-            bbox=dict(boxstyle='square,pad=0.45', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['line'], linewidth=0.8))
-
-    # 6. Card 4: Conclusión Final de Warren Buffett
-    ax.text(0.0, 0.15, '4. Dictamen Final de Warren Buffett sobre Integridad Contable:', fontsize=9.8, fontweight='bold', color=REPORT_THEME['navy'], va='top')
+    card3_text = f"{ajustes_desc}\n\nDiagnóstico de Alertas:\n{señales}"
     conclusion = analysis_result.get('conclusion_buffett', '')
-    conc_wrapped = textwrap.fill(_esc(conclusion), width=96)
-    ax.text(0.0, 0.11, conc_wrapped, fontsize=8.8, fontweight='bold', color=REPORT_THEME['navy'], va='top',
-            bbox=dict(boxstyle='round,pad=0.5', facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['teal'], linewidth=1.2))
 
-    pdf.savefig(fig)
-    plt.close(fig)
+    cards = [
+        ('1. Calidad de los Beneficios (Caja Real vs Beneficio Contable):', caja_desc, False),
+        ('2. Análisis de Cuentas por Cobrar, Inventarios y Capital Circulante:', cobros_desc, False),
+        ('3. Ajustes No-GAAP, Notas a los Informes 10-K y Señales de Alerta:', card3_text, False),
+        ('4. Dictamen Final de Warren Buffett sobre Integridad Contable:', conclusion, True)
+    ]
+
+    _render_dynamic_executive_cards_page(
+        pdf=pdf,
+        main_title=f'Auditoría Forense y Calidad Contable ({ticker_str})',
+        subtitle='Pregunta de Warren Buffett: ¿Hay indicios de contabilidad engañosa o datos que no cuadren?',
+        verdict_text=verdict_text,
+        badge_color=badge_color,
+        cards=cards,
+        ticker=ticker
+    )
 
 
 class PDFBuilder:

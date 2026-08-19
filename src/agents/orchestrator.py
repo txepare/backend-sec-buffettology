@@ -117,7 +117,8 @@ class OrchestratorAgent:
         segments_data = self.segments_agent.analyze(
             ticker=ticker,
             market_data=market_data,
-            sec_data=normalized
+            sec_data=normalized,
+            company_overview=company_overview
         )
 
         # Paso 9: Diagrama Sankey del Flujo del Estado de Resultados del Último Año (Página 3 del Documento)

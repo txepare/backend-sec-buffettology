@@ -18,9 +18,30 @@ class IncomeStatementFlowAgent(BaseAgent):
     def __init__(self):
         super().__init__(
             agent_name="IncomeStatementFlowAgent",
-            prompt_file="pdf_generator.xml",  # Utiliza configuración base
+            prompt_file="pdf_generator.xml",
             temperature=0.0
         )
+
+    @staticmethod
+    def _determinar_perfil_coste_segmento(nombre: str, idx: int, n_total: int) -> str:
+        """
+        Determina la característica de costes y rentabilidad de la línea de negocio para enriquecer el Sankey.
+        """
+        n_low = nombre.lower()
+        if any(k in n_low for k in ["servicios", "services", "cloud", "software", "financier", "financial", "hipotec", "comision", "licenc", "app store", "advertising", "publicidad", "suscrip", "prime"]):
+            return "Alto Margen / Escalable"
+        elif any(k in n_low for k in ["concentrad", "jarabes", "concesion"]):
+            return "Margen Máximo / Monopolio"
+        elif any(k in n_low for k in ["construcc", "homebuilding", "vivienda", "hardware", "iphone", "dispositiv", "devices", "maquinaria", "machinery", "automoci", "automotive", "vehicul", "embotellad", "recursos", "minería", "resource"]):
+            return "Intensivo en COGS / Producción"
+        elif any(k in n_low for k in ["alquiler", "rental", "leasing", "suelo", "forestar", "lotes", "inmueble"]):
+            return "Capital Rotativo / Expansión"
+        elif any(k in n_low for k in ["energía", "energy", "transporte", "power"]):
+            return "Bienes de Equipo / Flota"
+        elif idx == 0:
+            return "Línea Central de Volumen"
+        else:
+            return "Línea Complementaria"
 
     def prepare_flow_data(
         self,
@@ -31,7 +52,7 @@ class IncomeStatementFlowAgent(BaseAgent):
     ) -> Dict[str, Any]:
         """
         Calcula las partidas del estado de resultados del último año fiscal disponible
-        y las fusiona con los segmentos de ingresos.
+        y las fusiona con los segmentos de ingresos y sus perfiles de costes.
         """
         clean_ticker = ticker.upper().strip()
         company_name = market_data.get("company_name", clean_ticker)
@@ -80,24 +101,29 @@ class IncomeStatementFlowAgent(BaseAgent):
             seg_list = segments_data.get("segmentos", [])
             unit_str = segments_data.get("unidad_monetaria", "Billion USD")
             multiplier = 1e9 if "Billion" in unit_str else 1e6
+            n_tot = len(seg_list)
 
-            for s in seg_list:
-                s_name = s.get("nombre", "Segmento")
-                pct = s.get("porcentaje_ultimo_ano", (100.0 / len(seg_list)))
+            for idx, s in enumerate(seg_list):
+                s_name = s.get("nombre", f"Segmento {idx+1}")
+                pct = float(s.get("porcentaje_ultimo_ano", (100.0 / n_tot)))
                 yoy_val = s.get("crecimiento_yoy_pct")
-                yoy_str = f"{yoy_val:+.1f}% Y/Y" if yoy_val is not None else ""
+                yoy_str = f"{yoy_val:+.1f}% YoY" if yoy_val is not None and isinstance(yoy_val, (int, float)) else ""
                 
                 # Monto en dólares absolutos
                 if s_name in historico and len(historico[s_name]) > 0:
-                    val_abs = float(historico[s_name][-1]) * multiplier
+                    last_val = historico[s_name][-1]
+                    val_abs = float(last_val) * multiplier if (isinstance(last_val, (int, float)) and last_val > 0) else (pct / 100.0) * rev
                 else:
                     val_abs = (pct / 100.0) * rev
+
+                perfil_coste = self._determinar_perfil_coste_segmento(s_name, idx, n_tot)
 
                 formatted_segments.append({
                     "nombre": s_name,
                     "monto": val_abs,
                     "pct": pct,
-                    "yoy": yoy_str
+                    "yoy": yoy_str,
+                    "perfil": perfil_coste
                 })
 
         return {
@@ -119,3 +145,4 @@ class IncomeStatementFlowAgent(BaseAgent):
             segments_data=flow_prepared_data.get("segments_data", []),
             financial_flow=flow_prepared_data.get("financial_flow", {})
         )
+
