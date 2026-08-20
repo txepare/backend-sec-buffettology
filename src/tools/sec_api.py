@@ -18,33 +18,234 @@ class SecEdgarAPI:
         "Accept-Encoding": "gzip, deflate"
     }
 
-    @staticmethod
-    def _get_tickers_mapping() -> Dict[str, str]:
-        """Obtiene y cachea el mapeo de Tickers a CIKs."""
-        cache_path = os.path.join(CACHE_DIR, "company_tickers.json")
-        
-        if os.path.exists(cache_path):
-            with open(cache_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-                
-        url = "https://www.sec.gov/files/company_tickers.json"
-        response = requests.get(url, headers=SecEdgarAPI.HEADERS, timeout=10)
-        response.raise_for_status()
-        
-        data = response.json()
-        # Transformar para búsqueda rápida: {"AAPL": "0000320193", ...}
-        mapping = {v["ticker"].upper(): str(v["cik_str"]).zfill(10) for k, v in data.items()}
-        
-        with open(cache_path, 'w', encoding='utf-8') as f:
-            json.dump(mapping, f, indent=2)
-            
-        return mapping
+    _directory_loaded: bool = False
+    _ticker_map: Dict[str, Dict[str, str]] = {}
+    _norm_title_map: Dict[str, Dict[str, str]] = {}
+    _companies_list: List[Dict[str, str]] = []
+    _resolved_cache: Dict[str, Dict[str, str]] = {}
 
     @staticmethod
-    def get_cik_from_ticker(ticker: str) -> Optional[str]:
-        """Convierte un ticker (ej. AAPL) en un CIK rellenado con ceros (10 dígitos)."""
-        mapping = SecEdgarAPI._get_tickers_mapping()
-        return mapping.get(ticker.upper().strip())
+    def _normalize_company_name(name: str) -> str:
+        """Normaliza el nombre de una empresa para comparaciones insensibles a puntuación y sufijos legales."""
+        name = name.lower()
+        name = re.sub(r'[\.,/\\#\$\%\^\&\*\;\:\{\}\=\_\`\~\(\)\-\[\]\"\'\+]', ' ', name)
+        suffixes = {
+            'inc', 'incorporated', 'corp', 'corporation', 'co', 'company', 
+            'ltd', 'limited', 'plc', 'llc', 'lp', 'group', 'holdings', 
+            'holding', 'class a', 'class b', 'class c', 'com', 'new', 'de', 'the', 'sa', 'nv'
+        }
+        tokens = [w for w in name.split() if w not in suffixes]
+        return ' '.join(tokens).strip()
+
+    @classmethod
+    def _load_directory(cls, force_reload: bool = False) -> None:
+        """Carga y prepara el directorio completo de empresas (Tickers, CIK y Nombres) en memoria."""
+        if cls._directory_loaded and not force_reload:
+            return
+
+        cache_path_full = os.path.join(CACHE_DIR, "company_tickers_full.json")
+        cache_path_simple = os.path.join(CACHE_DIR, "company_tickers.json")
+
+        raw_data = None
+        if not force_reload and os.path.exists(cache_path_full):
+            try:
+                with open(cache_path_full, 'r', encoding='utf-8') as f:
+                    raw_data = json.load(f)
+            except Exception as e:
+                logger.warning(f"[SEC API] Error leyendo caché completo: {e}")
+
+        if not raw_data:
+            try:
+                url = "https://www.sec.gov/files/company_tickers.json"
+                logger.info("[SEC API] Descargando catálogo oficial de empresas desde la SEC...")
+                response = requests.get(url, headers=cls.HEADERS, timeout=12)
+                response.raise_for_status()
+                raw_data = response.json()
+
+                with open(cache_path_full, 'w', encoding='utf-8') as f:
+                    json.dump(raw_data, f, indent=2)
+            except Exception as e:
+                logger.error(f"[SEC API] No se pudo descargar el directorio SEC: {e}")
+                # Fallback al archivo simple si existe
+                if os.path.exists(cache_path_simple):
+                    with open(cache_path_simple, 'r', encoding='utf-8') as f:
+                        simple_map = json.load(f)
+                        raw_data = {
+                            str(i): {"ticker": k, "cik_str": v, "title": k}
+                            for i, (k, v) in enumerate(simple_map.items())
+                        }
+
+        if not raw_data:
+            raw_data = {}
+
+        cls._ticker_map.clear()
+        cls._norm_title_map.clear()
+        cls._companies_list.clear()
+
+        simple_export = {}
+        for k, v in raw_data.items():
+            ticker = str(v.get("ticker", "")).upper().strip()
+            if not ticker:
+                continue
+            title = str(v.get("title", "")).strip()
+            cik = str(v.get("cik_str", "")).zfill(10)
+            norm_title = cls._normalize_company_name(title)
+
+            item = {
+                "ticker": ticker,
+                "title": title,
+                "cik": cik,
+                "norm_title": norm_title
+            }
+            cls._companies_list.append(item)
+            cls._ticker_map[ticker] = item
+            # Soportar variantes de tickers con puntos/guiones (ej. BRK.B / BRK-B)
+            cls._ticker_map[ticker.replace('.', '-')] = item
+            cls._ticker_map[ticker.replace('-', '.')] = item
+
+            if norm_title and norm_title not in cls._norm_title_map:
+                cls._norm_title_map[norm_title] = item
+
+            simple_export[ticker] = cik
+
+        # Guardar mapeo simple compatible
+        try:
+            with open(cache_path_simple, 'w', encoding='utf-8') as f:
+                json.dump(simple_export, f, indent=2)
+        except Exception:
+            pass
+
+        cls._directory_loaded = True
+        logger.info(f"[SEC API] Directorio SEC inicializado con {len(cls._companies_list)} empresas.")
+
+    @classmethod
+    def _get_tickers_mapping(cls) -> Dict[str, str]:
+        """Obtiene y cachea el mapeo de Tickers a CIKs (Compatibilidad)."""
+        cls._load_directory()
+        return {item["ticker"]: item["cik"] for item in cls._companies_list}
+
+    @classmethod
+    def resolve_company(cls, query: str) -> Optional[Dict[str, str]]:
+        """
+        Resuelve de forma ultra-rápida un término de búsqueda (Ticker o Nombre de Empresa)
+        a su ficha canónica en la SEC {ticker, title, cik}.
+        """
+        if not query or not str(query).strip():
+            return None
+
+        cls._load_directory()
+        clean_q = str(query).strip()
+        upper_q = clean_q.upper()
+        cache_key = upper_q
+
+        if cache_key in cls._resolved_cache:
+            return cls._resolved_cache[cache_key]
+
+        # 1. Coincidencia exacta de Ticker (O(1))
+        if upper_q in cls._ticker_map:
+            res = cls._ticker_map[upper_q]
+            cls._resolved_cache[cache_key] = res
+            return res
+
+        std_q = upper_q.replace('.', '-')
+        if std_q in cls._ticker_map:
+            res = cls._ticker_map[std_q]
+            cls._resolved_cache[cache_key] = res
+            return res
+
+        # 2. Coincidencia exacta de Nombre Normalizado (O(1))
+        norm_q = cls._normalize_company_name(clean_q)
+        if norm_q and norm_q in cls._norm_title_map:
+            res = cls._norm_title_map[norm_q]
+            cls._resolved_cache[cache_key] = res
+            return res
+
+        # 3. Coincidencia de Prefijo de Nombre (ej. "Berkshire" -> Berkshire Hathaway, "Costco" -> Costco Wholesale)
+        if norm_q and len(norm_q) >= 3:
+            for c in cls._companies_list:
+                if c["norm_title"].startswith(norm_q) and len(c["norm_title"]) <= len(norm_q) + 20:
+                    cls._resolved_cache[cache_key] = c
+                    return c
+
+        # 4. Coincidencia por Contención de Subcadena / Palabras clave
+        if norm_q and len(norm_q) >= 4:
+            for c in cls._companies_list:
+                if norm_q in c["norm_title"]:
+                    cls._resolved_cache[cache_key] = c
+                    return c
+
+        # 5. Fallback con Yahoo Finance Search (para nombres coloquiales como Google -> GOOGL, Facebook -> META)
+        try:
+            url = f"https://query2.finance.yahoo.com/v1/finance/search?q={clean_q}&quotesCount=5&newsCount=0"
+            resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
+            if resp.status_code == 200:
+                quotes = resp.json().get("quotes", [])
+                for q in quotes:
+                    sym = q.get("symbol", "").upper().replace('.', '-')
+                    if sym in cls._ticker_map:
+                        res = cls._ticker_map[sym]
+                        cls._resolved_cache[cache_key] = res
+                        logger.info(f"[SEC API] '{clean_q}' resuelto vía Yahoo Finance a {res['ticker']} ({res['title']})")
+                        return res
+        except Exception as e:
+            logger.debug(f"[SEC API] Aviso en búsqueda Yahoo para '{clean_q}': {e}")
+
+        return None
+
+    @classmethod
+    def resolve_ticker(cls, query: str) -> str:
+        """
+        Retorna el Ticker oficial para una búsqueda (ticker o nombre).
+        Si no se encuentra, retorna el query limpio en mayúsculas como fallback.
+        """
+        company = cls.resolve_company(query)
+        if company:
+            return company["ticker"]
+        return query.upper().strip()
+
+    @classmethod
+    def search_companies(cls, query: str, limit: int = 5) -> List[Dict[str, str]]:
+        """
+        Busca empresas coincidentes para sugerencias rápidas o autocompletado.
+        """
+        if not query or not str(query).strip():
+            return []
+
+        cls._load_directory()
+        clean_q = str(query).strip().upper()
+        norm_q = cls._normalize_company_name(clean_q)
+
+        results = []
+        seen_tickers = set()
+
+        # Coincidencias de Ticker prioritarias
+        for c in cls._companies_list:
+            if c["ticker"].startswith(clean_q):
+                results.append({"ticker": c["ticker"], "title": c["title"], "cik": c["cik"]})
+                seen_tickers.add(c["ticker"])
+                if len(results) >= limit:
+                    return results
+
+        # Coincidencias de Nombre
+        if norm_q:
+            for c in cls._companies_list:
+                if c["ticker"] in seen_tickers:
+                    continue
+                if c["norm_title"].startswith(norm_q) or norm_q in c["norm_title"]:
+                    results.append({"ticker": c["ticker"], "title": c["title"], "cik": c["cik"]})
+                    seen_tickers.add(c["ticker"])
+                    if len(results) >= limit:
+                        return results
+
+        return results
+
+    @classmethod
+    def get_cik_from_ticker(cls, ticker_or_name: str) -> Optional[str]:
+        """Convierte un ticker o nombre de empresa en un CIK rellenado con ceros (10 dígitos)."""
+        company = cls.resolve_company(ticker_or_name)
+        if company:
+            return company["cik"]
+        return None
 
     @staticmethod
     def fetch_company_facts(ticker: str) -> Dict[str, Any]:

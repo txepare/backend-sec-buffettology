@@ -16,12 +16,13 @@ pycache/
 .pytest_cache/
 
 
-Datos y salidas generadas
-
-data/cache_sec/.json
-data/output_reports/.pdf
-data/normalized_json/.json
-data/.log
+# Datos y salidas generadas
+data/cache_sec/*.json
+data/cache_market/*.json
+data/output_reports/*.pdf
+data/output_reports/*.csv
+data/normalized_json/*.json
+data/*.log
 !data/cache_sec/.gitkeep
 !data/output_reports/.gitkeep
 !data/normalized_json/.gitkeep
