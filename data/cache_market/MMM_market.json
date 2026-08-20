@@ -1,0 +1,21 @@
+{
+  "ticker": "MMM",
+  "company_name": "3M Company",
+  "currency": "USD",
+  "current_price": 180.66,
+  "market_cap": 0,
+  "enterprise_value": 0,
+  "pe_ratio": 0.0,
+  "forward_pe": 0.0,
+  "peg_ratio": 0.0,
+  "price_to_book": 0.0,
+  "shares_outstanding": 0,
+  "dividend_yield": 0.0,
+  "beta": 1.0,
+  "52_week_high": 184.9,
+  "52_week_low": 139.34,
+  "sector": "Industrial",
+  "industry": "General",
+  "description": "",
+  "business_summary": ""
+}
