@@ -29,4 +29,4 @@ for directory in [CACHE_DIR, OUTPUT_DIR, NORMALIZED_DIR, PROMPTS_DIR]:
     os.makedirs(directory, exist_ok=True)
 
 # Configuración por defecto de Gemini
-DEFAULT_MODEL = "gemini-1.5-pro"  # Usamos la versión estable más reciente
+DEFAULT_MODEL = "gemini-3.5-flash-lite"  # Usamos la versión estable más reciente

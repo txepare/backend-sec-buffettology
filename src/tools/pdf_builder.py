@@ -457,9 +457,9 @@ def _render_dynamic_executive_cards_page(
     ticker: str = ""
 ):
     """
-    Motor de maquetación dinámico para páginas ejecutivas con tarjetas de texto.
-    Aprovecha el 100% del lienzo vertical de la página distribuyendo las tarjetas
-    de forma proporcional, con tipografías legibles, fondos elegantes y paneles pulidos.
+    Motor de maquetación dinámico para páginas ejecutivas con tarjetas de texto en cuadrícula 2x2.
+    Aprovecha el lienzo apaisado distribuyendo las tarjetas en 2 columnas equilibradas,
+    garantizando que los textos nunca se solapen ni desborden las tarjetas.
     """
     fig = plt.figure(figsize=(9.5, 7.2), dpi=150)
     fig.patch.set_facecolor(REPORT_THEME['canvas'])
@@ -470,93 +470,114 @@ def _render_dynamic_executive_cards_page(
     def _esc(t): return str(t or "").replace('$', r'\$')
 
     # 1. Encabezado institucional
-    ax.text(0.0, 0.985, _esc(main_title), fontsize=13.0, fontweight='bold', color=REPORT_THEME['navy'], va='top')
-    ax.text(0.0, 0.948, _esc(subtitle), fontsize=8.8, style='italic', color=REPORT_THEME['muted'], va='top')
+    ax.text(0.0, 0.985, _esc(main_title), fontsize=12.5, fontweight='bold', color=REPORT_THEME['navy'], va='top')
+    ax.text(0.0, 0.950, _esc(subtitle), fontsize=8.6, style='italic', color=REPORT_THEME['muted'], va='top')
 
     # 2. Veredicto destacado
-    ax.text(0.5, 0.885, _esc(verdict_text), fontsize=9.2, fontweight='bold', ha='center', va='center', color=badge_color,
-            bbox=dict(boxstyle='round,pad=0.42', facecolor=REPORT_THEME['panel'], edgecolor=badge_color, linewidth=1.3))
+    ax.text(0.5, 0.885, _esc(verdict_text), fontsize=8.6, fontweight='bold', ha='center', va='center', color=badge_color,
+            bbox=dict(boxstyle='round,pad=0.38', facecolor=REPORT_THEME['panel'], edgecolor=badge_color, linewidth=1.2))
 
-    # 3. Medición y formateo dinámico de tarjetas
-    wrap_w = 104
-    wrapped_cards = []
-    
-    for title, body, is_hl in cards:
-        lines = []
-        for p in str(body or "").split('\n\n'):
-            if p.strip():
-                lines.extend(textwrap.fill(_esc(p.strip()), width=wrap_w).split('\n'))
-        if not lines:
-            lines = ["Sin información adicional reportada."]
-        wrapped_cards.append((title, '\n'.join(lines), len(lines), is_hl))
-
-    n = len(wrapped_cards)
-    if n == 0:
-        pdf.savefig(fig)
-        plt.close(fig)
-        return
-
-    # Área vertical disponible para las tarjetas: desde y_top hasta y_bottom
-    y_top = 0.815
+    # 3. Medición y maquetación en 2 Columnas (Dashboard Grid 2x2)
+    y_top = 0.825
     y_bottom = 0.035
-    avail_h = y_top - y_bottom
-    gap = 0.022
-    total_gaps = gap * (n - 1)
-    usable_h = avail_h - total_gaps
+    usable_h = y_top - y_bottom
+    gap_y = 0.022
+    gap_x = 0.030
+    usable_col_h = usable_h - gap_y
+    col_w = (1.0 - gap_x) / 2.0
+    col_x_offsets = [0.0, col_w + gap_x]
+    wrap_w = 56
+    title_wrap_w = 40
 
-    weights = [max(c[2], 1) for c in wrapped_cards]
-    total_w = sum(weights)
-    card_heights = [(w / total_w) * usable_h for w in weights]
-    
-    # Asegurar altura mínima para cada tarjeta
-    min_h = 0.115
-    for i in range(n):
-        card_heights[i] = max(card_heights[i], min_h)
-    
-    # Re-normalizar para ocupar exactamente el 100% del espacio útil
-    scale_factor = usable_h / sum(card_heights)
-    card_heights = [h * scale_factor for h in card_heights]
-
-    total_lines = sum(c[2] for c in wrapped_cards)
-    if total_lines >= 26:
-        font_s = 7.4
-    elif total_lines >= 18:
-        font_s = 7.8
-    elif total_lines >= 12:
-        font_s = 8.2
+    if len(cards) == 4:
+        cols_data = [
+            [cards[0], cards[1]],
+            [cards[2], cards[3]]
+        ]
     else:
-        font_s = 8.6
+        half = (len(cards) + 1) // 2
+        cols_data = [cards[:half], cards[half:]]
 
-    curr_y = y_top
-    for idx, (c_title, c_body, n_lines, is_hl) in enumerate(wrapped_cards):
-        card_h = card_heights[idx]
-        box_y = curr_y - card_h
+    for col_idx, col_cards in enumerate(cols_data):
+        if not col_cards:
+            continue
+        col_x = col_x_offsets[col_idx]
+        wrapped = []
+        for card_item in col_cards:
+            title, body = card_item[0], card_item[1]
+            is_hl = card_item[2] if len(card_item) > 2 else False
+            title_lines = textwrap.fill(_esc(title), width=title_wrap_w).split('\n')
+            lines = []
+            for p in str(body or "").split('\n\n'):
+                if p.strip():
+                    wrapped_p = textwrap.fill(_esc(p.strip()), width=wrap_w, subsequent_indent="  " if p.strip().startswith("•") else "")
+                    lines.extend(wrapped_p.split('\n'))
+            if not lines:
+                lines = ["Sin información adicional reportada."]
+            wrapped.append((title_lines, lines, is_hl))
 
-        # Fondo y borde de tarjeta completa
-        bg_col = '#F0FDFA' if is_hl else REPORT_THEME['panel']
-        edge_col = REPORT_THEME['teal'] if is_hl else REPORT_THEME['line']
-        lw = 1.3 if is_hl else 0.8
-        
-        rect = patches.FancyBboxPatch(
-            (0.0, box_y), 1.0, card_h,
-            boxstyle='round,pad=0.0,rounding_size=0.015',
-            facecolor=bg_col, edgecolor=edge_col, linewidth=lw,
-            transform=ax.transAxes, zorder=2
-        )
-        ax.add_patch(rect)
+        n_cards_in_col = len(wrapped)
+        if n_cards_in_col == 1:
+            card_layouts = [(wrapped[0], y_top, usable_col_h)]
+        elif n_cards_in_col == 2:
+            lines_0 = max(len(wrapped[0][1]), 3) + len(wrapped[0][0])
+            lines_1 = max(len(wrapped[1][1]), 3) + len(wrapped[1][0])
+            total_l = lines_0 + lines_1
+            ratio_0 = max(0.36, min(0.64, lines_0 / total_l))
+            h0 = usable_col_h * ratio_0
+            h1 = usable_col_h * (1.0 - ratio_0)
+            card_layouts = [(wrapped[0], y_top, h0), (wrapped[1], y_top - h0 - gap_y, h1)]
+        else:
+            h_each = (usable_col_h - gap_y * (n_cards_in_col - 1)) / n_cards_in_col
+            card_layouts = []
+            curr_y = y_top
+            for w_item in wrapped:
+                card_layouts.append((w_item, curr_y, h_each))
+                curr_y -= (h_each + gap_y)
 
-        # Título de tarjeta dentro del panel
-        title_color = '#0F766E' if is_hl else REPORT_THEME['navy']
-        ax.text(0.018, curr_y - 0.022, _esc(c_title), fontsize=font_s + 0.8, fontweight='bold',
-                color=title_color, va='top', transform=ax.transAxes, zorder=3)
+        for (t_lines, lines, is_hl), top_y, h in card_layouts:
+            box_y = top_y - h
+            bg_col = '#F0FDFA' if is_hl else REPORT_THEME['panel']
+            edge_col = REPORT_THEME['teal'] if is_hl else REPORT_THEME['line']
+            lw = 1.3 if is_hl else 0.8
 
-        # Cuerpo de texto dentro del panel
-        body_color = REPORT_THEME['navy'] if is_hl else REPORT_THEME['text']
-        body_weight = 'bold' if is_hl else 'normal'
-        ax.text(0.018, curr_y - 0.052, c_body, fontsize=font_s, fontweight=body_weight,
-                color=body_color, va='top', transform=ax.transAxes, zorder=3)
+            rect = patches.FancyBboxPatch(
+                (col_x, box_y), col_w, h,
+                boxstyle='round,pad=0.0,rounding_size=0.015',
+                facecolor=bg_col, edgecolor=edge_col, linewidth=lw,
+                transform=ax.transAxes, zorder=2
+            )
+            ax.add_patch(rect)
 
-        curr_y -= (card_h + gap)
+            title_col = '#0F766E' if is_hl else REPORT_THEME['navy']
+            title_text = '\n'.join(t_lines)
+            ax.text(col_x + 0.015, top_y - 0.018, title_text,
+                    fontsize=8.1, fontweight='bold', color=title_col, va='top', transform=ax.transAxes, zorder=3)
+
+            # Cálculo estricto de capacidad de líneas para evitar cualquier solapamiento
+            axis_pt = 482.0
+            h_pt = h * axis_pt
+            title_space_pt = len(t_lines) * 10.5 + 14.0
+            text_avail_pt = h_pt - title_space_pt
+            line_height_pt = 8.6
+            max_fit_lines = max(int(text_avail_pt / line_height_pt), 1)
+
+            font_sz = 7.2
+            if len(lines) > max_fit_lines:
+                display_lines = lines[:max_fit_lines]
+                if display_lines:
+                    display_lines[-1] = display_lines[-1].rstrip('.') + '...'
+            else:
+                display_lines = lines
+                if len(lines) <= max_fit_lines - 4:
+                    font_sz = 7.6
+
+            body_str = '\n'.join(display_lines)
+            body_col = REPORT_THEME['navy'] if is_hl else REPORT_THEME['text']
+            body_top_offset = (title_space_pt - 4.0) / axis_pt
+            ax.text(col_x + 0.015, top_y - body_top_offset, body_str,
+                    fontsize=font_sz, fontweight='bold' if is_hl else 'normal',
+                    color=body_col, va='top', transform=ax.transAxes, zorder=3)
 
     pdf.savefig(fig)
     plt.close(fig)
@@ -564,9 +585,9 @@ def _render_dynamic_executive_cards_page(
 
 def show_company_overview(pdf, overview_result: dict, ticker: str = "", market_data: dict = None):
     """
-    Renderiza la primera página del informe PDF aprovechando el 100% del lienzo,
-    con tarjetas ejecutivas bien proporcionadas, explicando qué hace la empresa, sus divisiones de negocio,
-    ubicación, dinámicas sectoriales y evaluación en el Círculo de Competencia de Warren Buffett a partir del 10-K.
+    Renderiza la primera página del informe PDF en formato Dashboard 2x2 altamente legible,
+    explicando qué hace la empresa, sus divisiones de negocio, ubicación, dinámicas sectoriales
+    y evaluación en el Círculo de Competencia de Warren Buffett a partir del 10-K.
     """
     if not overview_result:
         return
@@ -584,21 +605,13 @@ def show_company_overview(pdf, overview_result: dict, ticker: str = "", market_d
             market_cap = current_price * shares
             market_data["market_cap"] = int(market_cap)
 
-    fig = plt.figure(figsize=(9.5, 7.2), dpi=150)
-    fig.patch.set_facecolor(REPORT_THEME['canvas'])
-    ax = fig.add_axes([0.045, 0.035, 0.91, 0.93])
-    ax.set_facecolor(REPORT_THEME['canvas'])
-    ax.axis('off')
-
     def _esc(t):
         if not t: return ""
         return str(t).replace('$', r'\$')
 
     ticker_str = ticker or ""
-    # 1. Encabezado institucional de la Empresa
-    ax.text(0.0, 0.985, f'{company_name} ({ticker_str}) - Perfil & Modelo de Negocio (SEC Form 10-K)', fontsize=12.8, fontweight='bold', color=REPORT_THEME['navy'], va='top')
+    main_title = f'{company_name} ({ticker_str}) - Perfil & Modelo de Negocio (SEC Form 10-K)'
     
-    # Subtítulo con datos clave de mercado
     if market_cap > 0:
         mcap_formatted = formato_legible(market_cap)
         mcap_str = f"${mcap_formatted}" if not mcap_formatted.startswith("$") else mcap_formatted
@@ -606,20 +619,23 @@ def show_company_overview(pdf, overview_result: dict, ticker: str = "", market_d
         mcap_str = "N/A"
 
     price_str = f"${current_price:.2f}" if current_price > 0 else "N/A"
-    sub_info = f"Sector: {sector}  |  Industria: {industry}  |  Cotización: {price_str}  |  Market Cap: {mcap_str}"
-    ax.text(0.0, 0.950, _esc(sub_info), fontsize=8.6, color=REPORT_THEME['muted'], va='top')
+    subtitle = f"Sector: {sector}  |  Industria: {industry}  |  Cotización: {price_str}  |  Market Cap: {mcap_str}"
 
-    # 2. Veredicto destacado: Círculo de Competencia y Predictibilidad
     categoria = overview_result.get('categoria_comprensibilidad', 'ALTO')
     badge_color = REPORT_THEME['positive'] if categoria == 'ALTO' else (REPORT_THEME['teal'] if categoria == 'MODERADO' else REPORT_THEME['negative'])
     verdicto = overview_result.get('veredicto_comprensibilidad', 'Evaluación de Comprensibilidad')
     desc_corta = overview_result.get('descripcion_corta', '')
     verdict_text = f"CÍRCULO DE COMPETENCIA DE BUFFETT: {_esc(verdicto)}\n{_esc(desc_corta)}"
-    
-    ax.text(0.5, 0.885, verdict_text, fontsize=9.0, fontweight='bold', ha='center', va='center', color=badge_color,
-            bbox=dict(boxstyle='round,pad=0.42', facecolor=REPORT_THEME['panel'], edgecolor=badge_color, linewidth=1.3))
 
-    # Formateo estructurado de líneas de negocio
+    # 1. Actividad y Ubicación
+    resumen_act = overview_result.get('resumen_actividad', 'Sin datos descriptivos.')
+    ubicacion_texto = overview_result.get('ubicacion_y_mercados', overview_result.get('mercado_y_clientes', ''))
+    if ubicacion_texto:
+        card1_body = f"{resumen_act}\n\n• Sede y Alcance Geográfico: {ubicacion_texto}"
+    else:
+        card1_body = resumen_act
+
+    # 2. Líneas de Negocio
     lineas_raw = overview_result.get('lineas_de_negocio', [])
     lines_formatted_list = []
     if isinstance(lineas_raw, list) and lineas_raw:
@@ -633,112 +649,41 @@ def show_company_overview(pdf, overview_result: dict, ticker: str = "", market_d
                     lines_formatted_list.append(f"• {nom or desc}")
             elif isinstance(item, str) and item.strip():
                 lines_formatted_list.append(f"• {item.strip()}")
-    
     lineas_texto = "\n\n".join(lines_formatted_list) if lines_formatted_list else overview_result.get('modelo_ingresos', 'Desglose detallado disponible en informe 10-K.')
 
-    # Ubicación y actividad combinada
-    resumen_act = overview_result.get('resumen_actividad', 'Sin datos descriptivos.')
-    ubicacion_texto = overview_result.get('ubicacion_y_mercados', overview_result.get('mercado_y_clientes', ''))
-    if ubicacion_texto:
-        card1_body = f"{resumen_act}\n\n• Sede y Alcance Geográfico: {ubicacion_texto}"
-    else:
-        card1_body = resumen_act
-
-    # Vientos de cola y perspectivas
+    # 3. Vientos de Cola y Perspectivas
     tailwinds_texto = overview_result.get('vientos_de_cola_y_sector', 'Impulsores de demanda según dinámica sectorial.')
     crecimiento_texto = overview_result.get('perspectivas_crecimiento', 'Análisis de evolución operativa y expansión de cuota.')
     card3_body = f"• Vientos de Cola del Sector (Tailwinds): {tailwinds_texto}\n\n• Perspectivas de Crecimiento / Riesgos: {crecimiento_texto}"
 
-    # Propuesta de valor y dictamen de Buffett
+    # 4. Propuesta de Valor y Dictamen Buffett
     propuesta_val = overview_result.get('propuesta_valor', '')
     circulo_val = overview_result.get('circulo_competencia', '')
     card4_body = f"• Propuesta de Valor Diferencial: {propuesta_val}\n\n• Dictamen de Warren Buffett: {circulo_val}"
 
-    # 4 Tarjetas que cubren el 100% del lienzo vertical
     cards = [
-        (
-            '1. Actividad de la Empresa y a qué se dedica en la economía real (SEC Form 10-K):',
-            card1_body,
-            False
-        ),
-        (
-            '2. Líneas de Negocio y Segmentos Operativos Detallados:',
-            lineas_texto,
-            False
-        ),
-        (
-            '3. Vientos de Cola del Sector y Perspectivas de Crecimiento / Decrecimiento:',
-            card3_body,
-            False
-        ),
-        (
-            '4. Propuesta de Valor Diferencial y Dictamen de Warren Buffett:',
-            card4_body,
-            True
-        )
+        ('1. Actividad de la Empresa y Sede Corporativa (10-K):', card1_body, False),
+        ('2. Líneas de Negocio y Segmentos Operativos:', lineas_texto, False),
+        ('3. Vientos de Cola y Perspectivas de Crecimiento:', card3_body, False),
+        ('4. Propuesta de Valor Diferencial & Veredicto Buffett:', card4_body, True)
     ]
 
-    wrap_w = 104
-    wrapped_cards = []
-    for title, body, is_hl in cards:
-        lines = []
-        for p in str(body or "").split('\n\n'):
-            if p.strip():
-                lines.extend(textwrap.fill(_esc(p.strip()), width=wrap_w).split('\n'))
-        if not lines:
-            lines = ["Sin información adicional reportada."]
-        wrapped_cards.append((title, '\n'.join(lines), len(lines), is_hl))
-
-    n = len(wrapped_cards)
-    y_top = 0.815
-    y_bottom = 0.035
-    avail_h = y_top - y_bottom
-    gap = 0.022
-    usable_h = avail_h - gap * (n - 1)
-
-    weights = [max(c[2], 1) for c in wrapped_cards]
-    total_w = sum(weights)
-    card_heights = [(w / total_w) * usable_h for w in weights]
-    for i in range(n):
-        card_heights[i] = max(card_heights[i], 0.115)
-    scale_factor = usable_h / sum(card_heights)
-    card_heights = [h * scale_factor for h in card_heights]
-
-    total_lines = sum(c[2] for c in wrapped_cards)
-    font_s = 7.5 if total_lines >= 26 else (7.9 if total_lines >= 18 else 8.3)
-
-    curr_y = y_top
-    for idx, (title, body, n_lines, is_hl) in enumerate(wrapped_cards):
-        h = card_heights[idx]
-        box_y = curr_y - h
-
-        bg_col = '#F0FDFA' if is_hl else REPORT_THEME['panel']
-        edge_col = REPORT_THEME['teal'] if is_hl else REPORT_THEME['line']
-        rect = patches.FancyBboxPatch(
-            (0.0, box_y), 1.0, h,
-            boxstyle='round,pad=0.0,rounding_size=0.015',
-            facecolor=bg_col, edgecolor=edge_col, linewidth=1.3 if is_hl else 0.8,
-            transform=ax.transAxes, zorder=2
-        )
-        ax.add_patch(rect)
-
-        title_col = '#0F766E' if is_hl else REPORT_THEME['navy']
-        ax.text(0.018, curr_y - 0.022, _esc(title), fontsize=font_s + 0.8, fontweight='bold', color=title_col, va='top', transform=ax.transAxes, zorder=3)
-
-        body_col = REPORT_THEME['navy'] if is_hl else REPORT_THEME['text']
-        ax.text(0.018, curr_y - 0.052, body, fontsize=font_s, fontweight='bold' if is_hl else 'normal', color=body_col, va='top', transform=ax.transAxes, zorder=3)
-
-        curr_y -= (h + gap)
-
-    pdf.savefig(fig)
-    plt.close(fig)
+    _render_dynamic_executive_cards_page(
+        pdf=pdf,
+        main_title=main_title,
+        subtitle=subtitle,
+        verdict_text=verdict_text,
+        badge_color=badge_color,
+        cards=cards,
+        ticker=ticker
+    )
 
 
 def show_revenue_segments_table(pdf, segments_result: dict, ticker: str = "", market_data: dict = None):
     """
     Renderiza la Página 2 del documento PDF: Tabla histórica de fuentes de ingresos por años (hasta 5 años),
     pesos porcentuales, crecimiento interanual, descripción de líneas de negocio y análisis de diversificación.
-    Aprovecha el 100% del lienzo con paneles amplios y sin huecos en blanco.
+    Aprovecha el 100% del lienzo con paneles paralelos lado a lado sin solapamiento.
     """
     if not segments_result:
         return
@@ -756,7 +701,7 @@ def show_revenue_segments_table(pdf, segments_result: dict, ticker: str = "", ma
 
     ticker_str = ticker or ""
     # 1. Encabezado institucional
-    ax.text(0.0, 0.985, f'{company_name} ({ticker_str}) - Desglose de Fuentes de Ingresos', fontsize=13.0, fontweight='bold', color=REPORT_THEME['navy'], va='top')
+    ax.text(0.0, 0.985, f'{company_name} ({ticker_str}) - Desglose de Fuentes de Ingresos', fontsize=12.5, fontweight='bold', color=REPORT_THEME['navy'], va='top')
     unit_str = segments_result.get("unidad_monetaria", "Billion USD")
     ax.text(0.0, 0.950, f'Evolución histórica por líneas de negocio ({unit_str}) y grado de diversificación (SEC Form 10-K)', fontsize=8.6, style='italic', color=REPORT_THEME['muted'], va='top')
 
@@ -810,7 +755,7 @@ def show_revenue_segments_table(pdf, segments_result: dict, ticker: str = "", ma
 
     num_rows = len(table_data) + 1
     row_h = 0.038
-    table_h = min(0.32, num_rows * row_h)
+    table_h = min(0.30, num_rows * row_h)
     table_y = 0.920 - table_h
 
     table = ax.table(
@@ -824,56 +769,53 @@ def show_revenue_segments_table(pdf, segments_result: dict, ticker: str = "", ma
     table.auto_set_font_size(False)
     estilizar_tabla(table, header_fontsize=8.6 if len(years) >= 5 else 9.0, cell_fontsize=8.0 if len(years) >= 5 else 8.4, pad=0.05)
 
-    # 3. Formatear y medir Cards inferiores ocupando el 100% del espacio restante
+    # 3. Cards Inferiores en 2 Columnas Paralelas (Lado a Lado)
+    avail_y_top = table_y - 0.025
+    y_bottom = 0.035
+    cards_h = avail_y_top - y_bottom
+    gap_x = 0.030
+    col_w = (1.0 - gap_x) / 2.0
+    col_x_offsets = [0.0, col_w + gap_x]
+    wrap_w = 56
+
+    # Card 1: Descripción
     desc_lines = []
     for s in segments_result.get("segmentos", []):
         s_name = s.get("nombre", "")
         s_desc = s.get("descripcion", "")
-        formatted_bullet = textwrap.fill(f"• {s_name}: {s_desc}", width=104, subsequent_indent="  ")
+        formatted_bullet = textwrap.fill(f"• {s_name}: {s_desc}", width=wrap_w, subsequent_indent="  ")
         desc_lines.append(formatted_bullet)
-    
-    desc_full_text = "\n".join(desc_lines)
+    desc_full_text = "\n\n".join(desc_lines) if desc_lines else "Descripción de líneas disponible en informe 10-K."
+
+    # Card 2: Diversificación
     analisis_div = segments_result.get("analisis_diversificacion", "La empresa cuenta con un modelo diversificado de ingresos.")
-    div_wrapped = textwrap.fill(_esc(analisis_div), width=104)
+    div_wrapped = "\n\n".join([textwrap.fill(p.strip(), width=wrap_w) for p in analisis_div.split('\n\n') if p.strip()])
 
-    avail_y_top = table_y - 0.030
-    y_bottom = 0.035
-    usable_h = avail_y_top - y_bottom
-    gap = 0.022
-    cards_usable_h = usable_h - gap
-
-    # Proporción: 58% Descripción, 42% Análisis de Diversificación
-    card1_h = cards_usable_h * 0.58
-    card2_h = cards_usable_h * 0.42
-
-    # Panel Card 1: Descripción
-    box1_y = avail_y_top - card1_h
+    # Render Card 1 (Izquierda)
     rect1 = patches.FancyBboxPatch(
-        (0.0, box1_y), 1.0, card1_h,
+        (col_x_offsets[0], y_bottom), col_w, cards_h,
         boxstyle='round,pad=0.0,rounding_size=0.015',
         facecolor=REPORT_THEME['panel'], edgecolor=REPORT_THEME['line'], linewidth=0.8,
         transform=ax.transAxes, zorder=2
     )
     ax.add_patch(rect1)
-    ax.text(0.018, avail_y_top - 0.022, '1. Descripción de las Líneas de Negocio y Segmentos:',
-            fontsize=8.8, fontweight='bold', color=REPORT_THEME['navy'], va='top', transform=ax.transAxes, zorder=3)
-    ax.text(0.018, avail_y_top - 0.052, _esc(desc_full_text),
-            fontsize=7.9, color=REPORT_THEME['text'], va='top', transform=ax.transAxes, zorder=3)
+    ax.text(col_x_offsets[0] + 0.015, avail_y_top - 0.018, '1. Descripción de las Líneas de Negocio:',
+            fontsize=8.1, fontweight='bold', color=REPORT_THEME['navy'], va='top', transform=ax.transAxes, zorder=3)
+    ax.text(col_x_offsets[0] + 0.015, avail_y_top - 0.044, _esc(desc_full_text),
+            fontsize=7.3, color=REPORT_THEME['text'], va='top', transform=ax.transAxes, zorder=3)
 
-    # Panel Card 2: Diversificación
-    curr_y_2 = box1_y - gap
-    box2_y = curr_y_2 - card2_h
+    # Render Card 2 (Derecha - Destacada)
     rect2 = patches.FancyBboxPatch(
-        (0.0, box2_y), 1.0, card2_h,
+        (col_x_offsets[1], y_bottom), col_w, cards_h,
         boxstyle='round,pad=0.0,rounding_size=0.015',
         facecolor='#F0FDFA', edgecolor=REPORT_THEME['teal'], linewidth=1.3,
         transform=ax.transAxes, zorder=2
     )
     ax.add_patch(rect2)
-    ax.text(0.018, curr_y_2 - 0.022, '2. Análisis de Diversificación y Riesgo de Concentración de Ingresos:',
-            fontsize=8.8, fontweight='bold', color='#0F766E', va='top', transform=ax.transAxes, zorder=3)
-    ax.text(0.018, curr_y_2 - 0.052, div_wrapped,
-            fontsize=8.2, fontweight='bold', color=REPORT_THEME['navy'], va='top', transform=ax.transAxes, zorder=3)
+    ax.text(col_x_offsets[1] + 0.015, avail_y_top - 0.018, '2. Análisis de Diversificación y Riesgos:',
+            fontsize=8.1, fontweight='bold', color='#0F766E', va='top', transform=ax.transAxes, zorder=3)
+    ax.text(col_x_offsets[1] + 0.015, avail_y_top - 0.044, _esc(div_wrapped),
+            fontsize=7.3, fontweight='bold', color=REPORT_THEME['navy'], va='top', transform=ax.transAxes, zorder=3)
 
     pdf.savefig(fig)
     plt.close(fig)
