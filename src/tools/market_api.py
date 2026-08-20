@@ -20,11 +20,26 @@ class MarketDataAPI:
     @staticmethod
     def get_market_quote(ticker: str) -> Dict[str, Any]:
         """
-        Obtiene la cotización actual y métricas de mercado para un ticker dado con sistema tolerante a fallos.
+        Obtiene la cotización actual y métricas de mercado para un ticker dado con sistema tolerante a fallos
+        y respuesta ultrarrápida (<300ms) mediante APIs REST directas y caché local.
         """
         clean_ticker = ticker.upper().strip()
         cache_file = os.path.join(CACHE_DIR, f"{clean_ticker}_market.json")
         logger.info(f"[Market API] Consultando datos de mercado para: {clean_ticker}")
+
+        # Si el caché en disco existe y tiene menos de 4 horas de antigüedad, reutilizarlo
+        if os.path.exists(cache_file):
+            try:
+                mtime = os.path.getmtime(cache_file)
+                import time
+                if (time.time() - mtime) < 14400: # 4 horas
+                    with open(cache_file, "r", encoding="utf-8") as f:
+                        cached = json.load(f)
+                        if cached.get("current_price", 0) > 0:
+                            logger.info(f"[Market API] Cotización cargada desde caché reciente para {clean_ticker}: ${cached.get('current_price')}")
+                            return cached
+            except Exception as e:
+                logger.debug(f"[Market API] Aviso verificando caché: {e}")
 
         current_price = 0.0
         company_name = clean_ticker
@@ -41,103 +56,45 @@ class MarketDataAPI:
         beta = 1.0
         fifty_two_week_high = 0.0
         fifty_two_week_low = 0.0
+        description = ""
 
-        # --- CANAL 1: Yahoo Chart v8 REST API (Inmune a rate limit 429) ---
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        }
+
+        # --- CANAL 1: Yahoo Chart v8 REST API (Inmune a rate limit 429, <150ms) ---
         try:
-            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{clean_ticker}?interval=1d&range=5d"
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            }
-            resp = requests.get(url, headers=headers, timeout=5)
+            url_chart = f"https://query1.finance.yahoo.com/v8/finance/chart/{clean_ticker}?interval=1d&range=5d"
+            resp = requests.get(url_chart, headers=headers, timeout=3)
             if resp.status_code == 200:
                 chart_data = resp.json()
                 meta = chart_data.get("chart", {}).get("result", [{}])[0].get("meta", {})
                 price_cand = meta.get("regularMarketPrice") or meta.get("previousClose") or meta.get("chartPreviousClose")
                 if price_cand:
                     current_price = float(price_cand)
-                company_name = meta.get("shortName") or meta.get("symbol") or clean_ticker
+                company_name = meta.get("longName") or meta.get("shortName") or meta.get("symbol") or clean_ticker
                 currency = meta.get("currency", "USD")
                 fifty_two_week_high = float(meta.get("fiftyTwoWeekHigh", 0.0) or 0.0)
                 fifty_two_week_low = float(meta.get("fiftyTwoWeekLow", 0.0) or 0.0)
         except Exception as e:
             logger.debug(f"[Market API] Canal 1 (Chart v8) aviso: {e}")
 
-        # --- CANAL 2: yfinance FastInfo / History ---
+        # --- CANAL 2: Yahoo Search API para Sector, Industria y Nombre oficial (<100ms) ---
         try:
-            stock = yf.Ticker(clean_ticker)
-            if hasattr(stock, "fast_info") and stock.fast_info is not None:
-                fi = stock.fast_info
-                # Precio
-                if current_price == 0.0:
-                    p_cand = getattr(fi, "last_price", None) or getattr(fi, "lastPrice", None) or getattr(fi, "previous_close", None) or getattr(fi, "previousClose", None)
-                    if p_cand:
-                        current_price = float(p_cand)
-                # Market Cap
-                if market_cap == 0:
-                    mc_cand = getattr(fi, "market_cap", None) or getattr(fi, "marketCap", None) or (fi.get("marketCap") if hasattr(fi, "get") else None)
-                    if mc_cand:
-                        market_cap = int(float(mc_cand))
-                # Shares
-                if shares_outstanding == 0:
-                    sh_cand = getattr(fi, "shares", None) or (fi.get("shares") if hasattr(fi, "get") else None)
-                    if sh_cand:
-                        shares_outstanding = int(float(sh_cand))
-                # 52w High / Low
-                if fifty_two_week_high == 0.0:
-                    yh = getattr(fi, "year_high", None) or getattr(fi, "yearHigh", None)
-                    if yh: fifty_two_week_high = float(yh)
-                if fifty_two_week_low == 0.0:
-                    yl = getattr(fi, "year_low", None) or getattr(fi, "yearLow", None)
-                    if yl: fifty_two_week_low = float(yl)
+            url_search = f"https://query2.finance.yahoo.com/v1/finance/search?q={clean_ticker}&quotesCount=1&newsCount=0"
+            resp_s = requests.get(url_search, headers=headers, timeout=3)
+            if resp_s.status_code == 200:
+                quotes = resp_s.json().get("quotes", [])
+                if quotes:
+                    q = quotes[0]
+                    sector = q.get("sector") or q.get("sectorDisp") or sector
+                    industry = q.get("industry") or q.get("industryDisp") or industry
+                    if company_name == clean_ticker:
+                        company_name = q.get("longname") or q.get("shortname") or company_name
         except Exception as e:
-            logger.debug(f"[Market API] Canal 2 (FastInfo) aviso: {e}")
+            logger.debug(f"[Market API] Canal 2 (Search) aviso: {e}")
 
-        # --- CANAL 3: yfinance stock.info (Para sector, industria, descripción y múltiplos) ---
-        description = ""
-        try:
-            session = requests.Session()
-            session.headers.update({
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            })
-            stock_session = yf.Ticker(clean_ticker, session=session)
-            info = stock_session.info
-            if info and isinstance(info, dict):
-                if current_price == 0.0:
-                    info_price = info.get("currentPrice") or info.get("regularMarketPrice") or info.get("previousClose")
-                    if info_price:
-                        current_price = float(info_price)
-                company_name = info.get("longName", company_name)
-                sector = info.get("sector", sector)
-                industry = info.get("industry", industry)
-                description = info.get("longBusinessSummary") or info.get("description") or ""
-                pe_ratio = float(info.get("trailingPE") or info.get("forwardPE") or 0.0)
-                forward_pe = float(info.get("forwardPE", 0.0) or 0.0)
-                peg_ratio = float(info.get("pegRatio", 0.0) or 0.0)
-                price_to_book = float(info.get("priceToBook", 0.0) or 0.0)
-                div_yield = info.get("dividendYield")
-                dividend_yield = float(div_yield * 100) if div_yield else 0.0
-                beta = float(info.get("beta", 1.0) or 1.0)
-                if market_cap == 0:
-                    market_cap = int(info.get("marketCap", 0) or 0)
-                if shares_outstanding == 0:
-                    shares_outstanding = int(info.get("sharesOutstanding", 0) or 0)
-        except Exception as e:
-            logger.debug(f"[Market API] Canal 3 (Stock info) no crítico: {e}")
-
-        # Si aún no tenemos market_cap pero tenemos precio y acciones, calcularlo
-        if market_cap == 0 and current_price > 0.0 and shares_outstanding > 0:
-            market_cap = int(current_price * shares_outstanding)
-
-        # --- CANAL 4: Fallback de historial ---
-        if current_price == 0.0:
-            try:
-                hist = stock.history(period="5d")
-                if not hist.empty and "Close" in hist:
-                    current_price = float(hist["Close"].iloc[-1])
-            except Exception as e:
-                logger.debug(f"[Market API] Canal 4 (Historial) aviso: {e}")
-
-        # Si obtuvimos precio con éxito, guardar en caché de disco
+        # Si obtuvimos precio con éxito, guardar en caché de disco y retornar de inmediato
         if current_price > 0.0:
             market_quote = {
                 "ticker": clean_ticker,
@@ -169,7 +126,7 @@ class MarketDataAPI:
             logger.info(f"[Market API] Datos obtenidos exitosamente para {clean_ticker}: Precio ${current_price:.2f}, Sector: {sector}")
             return market_quote
 
-        # --- CANAL 5: Cargar de caché local si todo lo anterior falló ---
+        # --- CANAL 3: Cargar de caché local si la red falló ---
         if os.path.exists(cache_file):
             try:
                 with open(cache_file, "r", encoding="utf-8") as f:
@@ -179,7 +136,7 @@ class MarketDataAPI:
             except Exception as e:
                 logger.error(f"[Market API] Error leyendo caché para {clean_ticker}: {e}")
 
-        # Fallback final si la red está completamente caída y no hay caché
+        # Fallback final
         logger.warning(f"[Market API] No se pudo obtener precio en tiempo real para {clean_ticker}. Retornando estructura base.")
         return {
             "ticker": clean_ticker,

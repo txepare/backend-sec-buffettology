@@ -82,8 +82,8 @@ class RevenueSegmentsAgent(BaseAgent):
                     overview_lines_list.append(l)
                     overview_lines_context += f"- {l.get('nombre')}: {l.get('descripcion', '')}\n"
 
-        item1_sample = item1_text[:10000] if item1_text else ""
-        item7_sample = item7_text[:12000] if item7_text else ""
+        item1_sample = item1_text[:3500] if item1_text else ""
+        item7_sample = item7_text[:3500] if item7_text else ""
 
         # 4. Construcción del Prompt para Gemini
         prompt_text = f"""
@@ -96,15 +96,12 @@ class RevenueSegmentsAgent(BaseAgent):
         - Ingresos Totales Consolidados por Ejercicio Fiscal ({unit_str}):
           {rev_summary_str}
 
-        LÍNEAS DE NEGOCIO Y DIVISIONES IDENTIFICADAS EN EL INFORME 10-K:
-        {overview_lines_context if overview_lines_context else "Extraer directamente de las secciones 10-K a continuación."}
+        EXTRACTO DEL INFORME 10-K DE LA SEC:
+        === ITEM 1. BUSINESS ===
+        {item1_sample}
 
-        TEXTO DEL INFORME 10-K DE LA SEC (SEGMENTOS Y DISCUSIÓN DE INGRESOS):
-        === ITEM 1. BUSINESS (DESCRIPCIÓN DE DIVISIONES Y SEGMENTOS) ===
-        {item1_sample[:6000]}
-
-        === ITEM 7. MD&A (RESULTADOS DE OPERACIONES POR SEGMENTOS) ===
-        {item7_sample[:8000]}
+        === ITEM 7. MD&A ===
+        {item7_sample}
 
         AÑOS HISTÓRICOS A DESGLOSAR:
         {recent_years}

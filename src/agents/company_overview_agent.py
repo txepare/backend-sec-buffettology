@@ -81,10 +81,10 @@ class CompanyOverviewAgent(BaseAgent):
         latest_ni = float(ni_series.iloc[-1]) if len(ni_series) > 0 else 0.0
         avg_gross_margin = float((gp_series / rev_series.replace(0, np.nan)).dropna().mean() * 100) if len(gp_series) > 0 else 0.0
 
-        # Preparar recortes de texto relevantes del 10-K para el prompt
-        item1_sample = item1_text[:14000] if item1_text else business_desc_market[:2000]
-        item2_sample = item2_text[:3000] if item2_text else "Consultar sede e instalaciones en informe 10-K."
-        item7_sample = item7_text[:12000] if item7_text else "Consultar MD&A en informe 10-K."
+        # Preparar recortes de texto relevantes y concisos del 10-K para máxima velocidad de inferencia
+        item1_sample = item1_text[:3500] if item1_text else business_desc_market[:1500]
+        item2_sample = item2_text[:800] if item2_text else "Sede corporativa global y centros operativos principales."
+        item7_sample = item7_text[:3000] if item7_text else "Consultar MD&A en informe 10-K."
 
         # 4. Construcción del Prompt para la IA
         prompt_text = f"""
@@ -102,19 +102,18 @@ class CompanyOverviewAgent(BaseAgent):
         - Ingresos Recientes: ${latest_rev:,.0f} USD (Margen Bruto Medio: {avg_gross_margin:.1f}%)
         - Beneficio Neto Reciente: ${latest_ni:,.0f} USD
 
-        TEXTO OFICIAL EXTRAÍDO DEL INFORME 10-K DE LA SEC:
-
-        === ITEM 1. BUSINESS (DESCRIPCIÓN DE LA EMPRESA, PRODUCTOS, SERVICIOS Y SEGMENTOS OPERATIVOS) ===
+        EXTRACTO DEL INFORME 10-K DE LA SEC:
+        === ITEM 1. BUSINESS ===
         {item1_sample}
 
-        === ITEM 2. PROPERTIES (SEDE CORPORATIVA, INSTALACIONES, FÁBRICAS Y CENTROS DE OPERACIONES) ===
+        === ITEM 2. PROPERTIES ===
         {item2_sample}
 
-        === ITEM 7. MANAGEMENT'S DISCUSSION AND ANALYSIS - MD&A (DINÁMICAS DE MERCADO, VIENTOS DE COLA/CONTRA Y PERSPECTIVAS) ===
+        === ITEM 7. MD&A ===
         {item7_sample}
 
         EJECUCIÓN:
-        Genera la respuesta ÚNICA Y EXCLUSIVAMENTE en el formato JSON definido en la etiqueta <output_format> de tus instrucciones de sistema, garantizando que el análisis refleje la rigurosidad propia de la inversión en valor.
+        Genera la respuesta ÚNICA Y EXCLUSIVAMENTE en el formato JSON definido en la etiqueta <output_format> de tus instrucciones de sistema.
         """
 
         # 5. Generación estricta con LLM (Sin fallbacks)
